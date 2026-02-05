@@ -16,23 +16,37 @@
 
 LOG_MODULE_REGISTER(ble_service, CONFIG_LOG_DEFAULT_LEVEL);
 
-/* Custom Service UUID: randomly generated, change if needed */
-/* Service UUID: 12345678-1234-5678-1234-56789abcdef0 */
+/*
+ * BLE Service UUIDs - Based on reverse engineering of original DOTT
+ * 
+ * The original uses multiple services:
+ * - 0xFFF0 with FFF1 (notify) and FFF2 (write)
+ * - f000ffe0-0451-4000-b000-000000000000 (TI-style)
+ * - MCUmgr SMP: 8d53dc1d-1db7-4cd3-868b-8a527460aa84
+ * 
+ * For OpenDOTT, we use the TI-style service for compatibility
+ */
+
+/* Primary Service UUID: f000ffe0-0451-4000-b000-000000000000 */
 #define BT_UUID_OPENDOTT_SERVICE_VAL \
-    BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef0)
+    BT_UUID_128_ENCODE(0xf000ffe0, 0x0451, 0x4000, 0xb000, 0x000000000000)
 
-/* Characteristics */
-/* Image Data UUID: ...def1 */
+/* Write Characteristic: f000ffe1-0451-4000-b000-000000000000 */
 #define BT_UUID_OPENDOTT_IMAGE_DATA_VAL \
-    BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef1)
+    BT_UUID_128_ENCODE(0xf000ffe1, 0x0451, 0x4000, 0xb000, 0x000000000000)
 
-/* Transfer Control UUID: ...def2 */
+/* Notify Characteristic: f000ffe2-0451-4000-b000-000000000000 */
 #define BT_UUID_OPENDOTT_TRANSFER_CTRL_VAL \
-    BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef2)
+    BT_UUID_128_ENCODE(0xf000ffe2, 0x0451, 0x4000, 0xb000, 0x000000000000)
 
-/* Device Info UUID: ...def3 */
+/* Also expose the short UUID service 0xFFF0 for compatibility */
+#define BT_UUID_OPENDOTT_SHORT_SERVICE_VAL BT_UUID_16_ENCODE(0xFFF0)
+#define BT_UUID_OPENDOTT_SHORT_NOTIFY_VAL  BT_UUID_16_ENCODE(0xFFF1)
+#define BT_UUID_OPENDOTT_SHORT_WRITE_VAL   BT_UUID_16_ENCODE(0xFFF2)
+
+/* Device Info uses standard UUID */
 #define BT_UUID_OPENDOTT_DEVICE_INFO_VAL \
-    BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef3)
+    BT_UUID_128_ENCODE(0xf000ffe3, 0x0451, 0x4000, 0xb000, 0x000000000000)
 
 static struct bt_uuid_128 service_uuid = BT_UUID_INIT_128(BT_UUID_OPENDOTT_SERVICE_VAL);
 static struct bt_uuid_128 image_data_uuid = BT_UUID_INIT_128(BT_UUID_OPENDOTT_IMAGE_DATA_VAL);
