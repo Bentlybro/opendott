@@ -2,12 +2,12 @@
 """
 DOTT Image Upload Tool
 ======================
-Upload images to DOTT wearable via Bluetooth LE.
+Upload GIF images to DOTT wearable via Bluetooth LE.
 
-Protocol discovered via BLE service enumeration:
-- Custom Service: 0483dadd-6c9d-6ca9-5d41-03ad4fff4bcc
-- Data Transfer: characteristic 0x1529 (write + notify)
-- Status: characteristic 0x1527
+Protocol reverse-engineered from weardott Android app v1.0.5:
+- Service: 0483dadd-6c9d-6ca9-5d41-03ad4fff4bcc
+- Characteristic: 0x1525 (write raw data chunks)
+- Just stream raw bytes - no headers, no sequence numbers!
 
 Usage:
     python dott_upload.py scan                    # Find DOTT devices
@@ -21,6 +21,7 @@ import argparse
 import struct
 import sys
 import os
+import time
 from pathlib import Path
 
 try:
@@ -30,15 +31,8 @@ except ImportError:
     print("Error: bleak not installed. Run: pip install bleak")
     sys.exit(1)
 
-try:
-    import cbor2
-except ImportError:
-    print("Warning: cbor2 not installed. MCUmgr commands won't work.")
-    print("Run: pip install cbor2")
-    cbor2 = None
-
 # ============================================================================
-# BLE UUIDs - DISCOVERED FROM DEVICE
+# BLE UUIDs - FROM DECOMPILED WEARDOTT APP
 # ============================================================================
 
 # Standard Services
@@ -47,89 +41,19 @@ UUID_DEVICE_NAME = "00002a00-0000-1000-8000-00805f9b34fb"
 UUID_FIRMWARE_REV = "00002a26-0000-1000-8000-00805f9b34fb"
 UUID_MODEL_NUMBER = "00002a24-0000-1000-8000-00805f9b34fb"
 
-# MCUmgr SMP Service (for firmware updates)
-UUID_SMP_SERVICE = "8d53dc1d-1db7-4cd3-868b-8a527460aa84"
-UUID_SMP_CHAR = "da2e7828-fbce-4e01-ae9e-261174997c48"
-
-# ============================================================================
-# DOTT IMAGE TRANSFER SERVICE (discovered)
-# Service UUID: 0483dadd-6c9d-6ca9-5d41-03ad4fff4bcc
-# ============================================================================
+# DOTT Image Transfer Service (from app decompilation)
+# Called "NORDIC_THROUGHPUT" in the app code
 UUID_DOTT_SERVICE = "0483dadd-6c9d-6ca9-5d41-03ad4fff4bcc"
+UUID_DOTT_TRANSFER = "00001525-0000-1000-8000-00805f9b34fb"  # The upload characteristic!
 
-# Characteristics (using 16-bit form for readability)
-# Full form: 0000XXXX-0000-1000-8000-00805f9b34fb
-UUID_DOTT_STATE     = "00001525-0000-1000-8000-00805f9b34fb"  # RW- State/CBOR data
-UUID_DOTT_COMMAND   = "00001526-0000-1000-8000-00805f9b34fb"  # RW  Command
-UUID_DOTT_STATUS    = "00001527-0000-1000-8000-00805f9b34fb"  # RW  Status byte
-UUID_DOTT_ACK       = "00001528-0000-1000-8000-00805f9b34fb"  # RWI ACK (indicate)
-UUID_DOTT_DATA      = "00001529-0000-1000-8000-00805f9b34fb"  # WN  DATA TRANSFER
-UUID_DOTT_RESPONSE  = "00001530-0000-1000-8000-00805f9b34fb"  # RN  Response
-
-# Legacy UUIDs (not present on device but kept for reference)
-UUID_CUSTOM_SERVICE = "f000ffe0-0451-4000-b000-000000000000"  # TI-style - NOT USED
-UUID_LEGACY_SERVICE = "0000fff0-0000-1000-8000-00805f9b34fb"  # FFF0 - NOT USED
-
-# ============================================================================
-# MCUmgr SMP Protocol
-# ============================================================================
-
-class SMPOp:
-    READ = 0
-    READ_RSP = 1
-    WRITE = 2
-    WRITE_RSP = 3
-
-class SMPGroup:
-    OS = 0
-    IMAGE = 1
-    STAT = 2
-    CONFIG = 3
-    LOG = 4
-    CRASH = 5
-    SPLIT = 6
-    RUN = 7
-    FS = 8
-    SHELL = 9
-
-class SMPCmd:
-    OS_ECHO = 0
-    OS_RESET = 5
-    FS_FILE = 0
-    IMG_STATE = 0
-    IMG_UPLOAD = 1
-
-
-def build_smp_packet(op, group, cmd_id, data=None, seq=0):
-    """Build an SMP packet with CBOR payload."""
-    if data is None:
-        data = {}
-    
-    if cbor2 is None:
-        raise RuntimeError("cbor2 not installed")
-    
-    payload = cbor2.dumps(data)
-    header = struct.pack('>BBHHBB', op, 0, len(payload), group, seq, cmd_id)
-    return header + payload
-
-
-def parse_smp_response(data):
-    """Parse an SMP response packet."""
-    if len(data) < 8:
-        return None, None, data
-    
-    op, flags, length, group, seq, cmd = struct.unpack('>BBHHBB', data[:8])
-    payload = data[8:8+length]
-    
-    result = None
-    if cbor2 and payload:
-        try:
-            result = cbor2.loads(payload)
-        except:
-            result = payload
-    
-    return {'op': op, 'group': group, 'cmd': cmd, 'seq': seq}, result, data[8+length:]
-
+# Protocol constants from app
+OPTIMAL_MTU = 498
+DEFAULT_MTU = 23
+CHUNK_DELAY_MS = 5
+MAX_RETRIES = 5
+BACKOFF_BASE_MS = 50
+BACKOFF_MAX_MS = 1000
+STABILIZATION_DELAY_MS = 100
 
 # ============================================================================
 # DOTT Client
@@ -139,11 +63,9 @@ class DOTTClient:
     def __init__(self, address):
         self.address = address
         self.client = None
-        self.smp_seq = 0
-        self.responses = asyncio.Queue()
         self.connected = False
-        self.has_dott_service = False
-        self.has_smp_service = False
+        self.mtu_size = DEFAULT_MTU
+        self.transfer_char = None
         
     async def connect(self):
         """Connect to DOTT device."""
@@ -153,11 +75,18 @@ class DOTTClient:
         self.connected = True
         print(f"Connected: {self.client.is_connected}")
         
-        # Check available services
-        await self._check_services()
-        
-        # Enable notifications
-        await self._setup_notifications()
+        # Request high MTU (like the app does)
+        try:
+            # Bleak handles MTU negotiation automatically on most platforms
+            # The actual MTU will be whatever the device supports
+            self.mtu_size = self.client.mtu_size
+            print(f"MTU: {self.mtu_size}")
+        except Exception as e:
+            print(f"MTU negotiation note: {e}")
+            self.mtu_size = DEFAULT_MTU
+            
+        # Find the transfer characteristic
+        await self._find_transfer_characteristic()
         
     async def disconnect(self):
         """Disconnect from device."""
@@ -166,41 +95,21 @@ class DOTTClient:
         self.connected = False
         print("Disconnected")
         
-    async def _check_services(self):
-        """Check which services are available."""
+    async def _find_transfer_characteristic(self):
+        """Find the image transfer characteristic."""
         for service in self.client.services:
             if service.uuid.lower() == UUID_DOTT_SERVICE.lower():
-                self.has_dott_service = True
-                print(f"  ✓ DOTT Image Service found")
-            elif service.uuid.lower() == UUID_SMP_SERVICE.lower():
-                self.has_smp_service = True
-                print(f"  ✓ MCUmgr SMP Service found")
-                
-    async def _setup_notifications(self):
-        """Enable notifications on response characteristics."""
+                print(f"✓ Found DOTT service")
+                for char in service.characteristics:
+                    if char.uuid.lower() == UUID_DOTT_TRANSFER.lower():
+                        self.transfer_char = char
+                        props = char.properties
+                        print(f"✓ Found transfer characteristic (0x1525)")
+                        print(f"  Properties: {props}")
+                        return True
+        print("✗ Transfer characteristic not found!")
+        return False
         
-        def make_handler(name):
-            def handler(sender, data):
-                print(f"[{name}] Notification ({len(data)} bytes): {data[:32].hex()}{'...' if len(data) > 32 else ''}")
-                self.responses.put_nowait((name, data))
-            return handler
-        
-        # DOTT service notifications
-        notify_chars = [
-            (UUID_DOTT_DATA, "DOTT_DATA"),       # 0x1529 - write+notify
-            (UUID_DOTT_ACK, "DOTT_ACK"),         # 0x1528 - indicate
-            (UUID_DOTT_RESPONSE, "DOTT_RESP"),   # 0x1530 - notify
-            (UUID_SMP_CHAR, "SMP"),              # MCUmgr
-        ]
-        
-        for uuid, name in notify_chars:
-            try:
-                await self.client.start_notify(uuid, make_handler(name))
-                print(f"  ✓ Notifications enabled: {name}")
-            except Exception as e:
-                # Not all chars may support notifications
-                pass
-                
     async def get_device_info(self):
         """Read basic device information."""
         info = {}
@@ -224,95 +133,45 @@ class DOTTClient:
                 
         return info
         
-    async def read_dott_status(self):
-        """Read DOTT service status characteristics."""
-        status = {}
+    def _calculate_backoff(self, retry_count):
+        """Calculate exponential backoff delay."""
+        delay = BACKOFF_BASE_MS * (2 ** (retry_count - 1))
+        return min(delay, BACKOFF_MAX_MS) / 1000.0  # Convert to seconds
         
-        try:
-            data = await self.client.read_gatt_char(UUID_DOTT_STATUS)
-            status['status_byte'] = data[0] if data else None
-            print(f"  Status (0x1527): {data.hex() if data else 'empty'}")
-        except Exception as e:
-            print(f"  Status read failed: {e}")
-            
-        try:
-            data = await self.client.read_gatt_char(UUID_DOTT_COMMAND)
-            status['command'] = data
-            print(f"  Command (0x1526): {data.hex() if data else 'empty'}")
-        except Exception as e:
-            print(f"  Command read failed: {e}")
-            
-        try:
-            data = await self.client.read_gatt_char(UUID_DOTT_RESPONSE)
-            status['response'] = data
-            print(f"  Response (0x1530): {data[:32].hex() if data else 'empty'}{'...' if data and len(data) > 32 else ''}")
-        except Exception as e:
-            print(f"  Response read failed: {e}")
-            
-        return status
-        
-    async def smp_command(self, group, cmd, data=None, timeout=5.0):
-        """Send an SMP command and wait for response."""
-        self.smp_seq = (self.smp_seq + 1) % 256
-        packet = build_smp_packet(SMPOp.WRITE, group, cmd, data, self.smp_seq)
-        
-        print(f"  Sending SMP: group={group}, cmd={cmd}")
-        
-        try:
-            await self.client.write_gatt_char(UUID_SMP_CHAR, packet, response=False)
-        except Exception as e:
-            print(f"  Write failed: {e}")
-            return None
-            
-        try:
-            name, response = await asyncio.wait_for(self.responses.get(), timeout)
-            header, result, _ = parse_smp_response(response)
-            return result
-        except asyncio.TimeoutError:
-            print("  Timeout")
-            return None
-            
-    async def smp_echo(self, message="OpenDOTT"):
-        """Test SMP with echo command."""
-        return await self.smp_command(SMPGroup.OS, SMPCmd.OS_ECHO, {"d": message})
-        
-    async def smp_get_image_state(self):
-        """Get firmware image state."""
-        return await self.smp_command(SMPGroup.IMAGE, SMPCmd.IMG_STATE)
-        
-    # ========================================================================
-    # DOTT Image Transfer Protocol
-    # ========================================================================
-    
-    async def write_dott_data(self, data, response_wait=True):
-        """Write data to the DOTT data characteristic (0x1529)."""
-        try:
-            # write-without-response for speed
-            await self.client.write_gatt_char(UUID_DOTT_DATA, data, response=False)
-            return True
-        except Exception as e:
-            print(f"  Write failed: {e}")
+    async def _write_chunk(self, data, use_response=False):
+        """Write a single chunk with retry logic."""
+        if not self.transfer_char:
             return False
             
-    async def write_dott_command(self, data):
-        """Write to the DOTT command characteristic (0x1526)."""
-        try:
-            await self.client.write_gatt_char(UUID_DOTT_COMMAND, data, response=True)
-            return True
-        except Exception as e:
-            print(f"  Command write failed: {e}")
-            return False
-            
-    async def upload_image_dott(self, image_path):
-        """Upload image using discovered DOTT protocol."""
+        for attempt in range(MAX_RETRIES):
+            try:
+                # The app prefers write-without-response for speed
+                await self.client.write_gatt_char(
+                    UUID_DOTT_TRANSFER, 
+                    data, 
+                    response=use_response
+                )
+                return True
+            except Exception as e:
+                if attempt < MAX_RETRIES - 1:
+                    delay = self._calculate_backoff(attempt + 1)
+                    await asyncio.sleep(delay)
+                else:
+                    print(f"  Write failed after {MAX_RETRIES} attempts: {e}")
+                    return False
+        return False
+        
+    async def upload_gif(self, image_path):
+        """Upload a GIF file to the device."""
         print(f"\n{'='*60}")
         print(f"DOTT Image Upload")
         print(f"{'='*60}\n")
         
-        if not self.has_dott_service:
-            print("Error: DOTT service not found on device!")
+        if not self.transfer_char:
+            print("Error: Transfer characteristic not found!")
             return False
             
+        # Read file
         with open(image_path, 'rb') as f:
             data = f.read()
             
@@ -325,161 +184,79 @@ class DOTTClient:
         else:
             print(f"Warning: Not a GIF file! First bytes: {data[:6].hex()}")
             
-        # Read initial status
-        print(f"\nReading initial status...")
-        await self.read_dott_status()
+        # Calculate chunk size (MTU - 3 ATT header bytes)
+        chunk_size = self.mtu_size - 3
+        if chunk_size < 20:
+            chunk_size = 20  # Minimum safe chunk size
+            
+        total_chunks = (len(data) + chunk_size - 1) // chunk_size
         
-        # Based on firmware analysis, the protocol seems to be:
-        # 1. Send size/trigger command
-        # 2. Stream data chunks
-        # 3. Wait for processing
+        print(f"MTU: {self.mtu_size}")
+        print(f"Chunk size: {chunk_size} bytes")
+        print(f"Total chunks: {total_chunks}")
         
         print(f"\n--- Starting Transfer ---\n")
         
-        # Try Protocol A: Direct data streaming to 0x1529
-        print("Protocol A: Direct data stream to 0x1529")
+        start_time = time.time()
+        bytes_sent = 0
+        chunk_num = 0
         
-        # Send total size first (4 bytes little-endian)
-        size_header = struct.pack('<I', len(data))
-        print(f"  Sending size header: {size_header.hex()} ({len(data)} bytes)")
-        await self.write_dott_data(size_header)
-        await asyncio.sleep(0.2)
-        
-        # Stream data in chunks (BLE MTU is typically 20-244 bytes, use conservative 200)
-        chunk_size = 200
-        total_chunks = (len(data) + chunk_size - 1) // chunk_size
-        
-        for i in range(0, len(data), chunk_size):
-            chunk = data[i:i+chunk_size]
-            chunk_num = i // chunk_size + 1
+        # Stream raw data chunks (this is exactly what the app does!)
+        offset = 0
+        while offset < len(data):
+            chunk = data[offset:offset + chunk_size]
+            chunk_num += 1
             
-            if chunk_num % 10 == 0 or chunk_num == total_chunks:
-                print(f"  Chunk {chunk_num}/{total_chunks} ({len(chunk)} bytes)")
+            # Write chunk
+            if not await self._write_chunk(chunk):
+                print(f"\n✗ Failed to send chunk {chunk_num}")
+                return False
                 
-            await self.write_dott_data(chunk)
-            await asyncio.sleep(0.01)  # Small delay between chunks
+            bytes_sent += len(chunk)
+            offset += len(chunk)
             
-            # Check for any notifications
-            while not self.responses.empty():
-                name, resp = self.responses.get_nowait()
-                print(f"    Response: {name} = {resp.hex()}")
+            # Progress update
+            progress = int((bytes_sent / len(data)) * 100)
+            if chunk_num % 50 == 0 or chunk_num == total_chunks:
+                elapsed = time.time() - start_time
+                rate = (bytes_sent * 8 / 1024) / elapsed if elapsed > 0 else 0
+                print(f"  Progress: {progress}% ({bytes_sent}/{len(data)} bytes, {rate:.1f} kbps)")
                 
-        print(f"\n  All data sent: {len(data)} bytes")
-        
-        # Wait a bit for processing and check status
-        print(f"\n  Waiting for device to process...")
-        await asyncio.sleep(2)
-        
-        # Drain any remaining notifications
-        while not self.responses.empty():
-            name, resp = self.responses.get_nowait()
-            print(f"  Response: {name} = {resp.hex()}")
+            # Small delay between chunks (as per app protocol)
+            await asyncio.sleep(CHUNK_DELAY_MS / 1000.0)
             
-        # Read final status
-        print(f"\nFinal status:")
-        await self.read_dott_status()
+        # Complete!
+        elapsed = time.time() - start_time
+        rate = (len(data) * 8 / 1024) / elapsed if elapsed > 0 else 0
         
-        return True
-        
-    async def upload_image_alt(self, image_path):
-        """Alternative upload - try different packet formats."""
         print(f"\n{'='*60}")
-        print(f"Alternative Upload Protocol Test")
+        print(f"✓ Upload Complete!")
+        print(f"  {len(data)} bytes in {elapsed:.2f}s ({rate:.1f} kbps)")
         print(f"{'='*60}\n")
         
-        with open(image_path, 'rb') as f:
-            data = f.read()
-            
-        print(f"Testing alternative packet formats...\n")
+        # Stabilization delay (as per app)
+        await asyncio.sleep(STABILIZATION_DELAY_MS / 1000.0)
         
-        # Protocol B: Command characteristic first
-        print("Protocol B: Command trigger + data stream")
-        print("  Writing trigger to 0x1526...")
-        await self.write_dott_command(struct.pack('<I', len(data)))
-        await asyncio.sleep(0.5)
-        
-        # Check for response
-        while not self.responses.empty():
-            name, resp = self.responses.get_nowait()
-            print(f"  Response: {name} = {resp.hex()}")
-            
-        # Stream first 2KB as test
-        test_size = min(2048, len(data))
-        chunk_size = 200
-        
-        for i in range(0, test_size, chunk_size):
-            chunk = data[i:i+chunk_size]
-            await self.write_dott_data(chunk)
-            await asyncio.sleep(0.01)
-            
-        print(f"  Sent {test_size} bytes test data")
-        await asyncio.sleep(1)
-        
-        while not self.responses.empty():
-            name, resp = self.responses.get_nowait()
-            print(f"  Response: {name} = {resp.hex()}")
-            
-        # Protocol C: Framed packets with sequence numbers
-        print("\nProtocol C: Framed packets [seq:2][len:2][data]")
-        
-        # Reset by reading status
-        await self.read_dott_status()
-        
-        seq = 0
-        chunk_size = 196  # Leave room for header
-        test_size = min(2048, len(data))
-        
-        for i in range(0, test_size, chunk_size):
-            chunk = data[i:i+chunk_size]
-            # Frame: [seq:2 LE][len:2 LE][data]
-            frame = struct.pack('<HH', seq, len(chunk)) + chunk
-            await self.write_dott_data(frame)
-            seq += 1
-            await asyncio.sleep(0.01)
-            
-        print(f"  Sent {seq} framed packets")
-        await asyncio.sleep(1)
-        
-        while not self.responses.empty():
-            name, resp = self.responses.get_nowait()
-            print(f"  Response: {name} = {resp.hex()}")
-            
         return True
         
-    async def test_protocols(self):
-        """Test all available protocols."""
+    async def test_connection(self):
+        """Test connection and show device info."""
         print("\n" + "="*60)
-        print("Protocol Testing")
+        print("Connection Test")
         print("="*60 + "\n")
         
-        # Device info
         info = await self.get_device_info()
         print("Device Info:")
         for k, v in info.items():
             print(f"  {k}: {v}")
             
-        # DOTT service status
-        if self.has_dott_service:
-            print(f"\nDOTT Service Status:")
-            await self.read_dott_status()
+        print(f"\nTransfer Characteristic: {'Found ✓' if self.transfer_char else 'NOT FOUND ✗'}")
+        print(f"MTU Size: {self.mtu_size}")
+        
+        if self.transfer_char:
+            print("\nReady to upload!")
         else:
-            print("\nDOTT Service: NOT FOUND")
-            
-        # SMP test
-        if self.has_smp_service:
-            print(f"\nSMP Echo Test:")
-            result = await self.smp_echo("OpenDOTT")
-            if result:
-                print(f"  ✓ Echo response: {result}")
-            else:
-                print(f"  ✗ No response")
-                
-            print(f"\nSMP Image State:")
-            result = await self.smp_get_image_state()
-            if result:
-                print(f"  ✓ Response: {result}")
-        else:
-            print("\nSMP Service: NOT FOUND")
+            print("\nDevice does not support image upload.")
 
 
 # ============================================================================
@@ -497,7 +274,8 @@ async def cmd_scan():
         name = d.name or "Unknown"
         if "dott" in name.lower():
             dott_devices.append(d)
-            print(f"  ✓ DOTT: {d.address} - {name} (RSSI: {d.rssi})")
+            rssi = getattr(d, 'rssi', 'N/A')
+            print(f"  ✓ DOTT: {d.address} - {name} (RSSI: {rssi})")
         else:
             print(f"    {d.address} - {name}")
             
@@ -515,7 +293,7 @@ async def cmd_info(address):
     
     try:
         await client.connect()
-        await client.test_protocols()
+        await client.test_connection()
     finally:
         await client.disconnect()
 
@@ -530,20 +308,16 @@ async def cmd_upload(address, image_path):
     
     try:
         await client.connect()
-        await client.upload_image_dott(image_path)
+        success = await client.upload_gif(image_path)
+        if success:
+            print("The GIF should now be displaying on your DOTT!")
     finally:
         await client.disconnect()
 
 
 async def cmd_test(address):
-    """Test connection and protocols."""
-    client = DOTTClient(address)
-    
-    try:
-        await client.connect()
-        await client.test_protocols()
-    finally:
-        await client.disconnect()
+    """Test connection."""
+    await cmd_info(address)
 
 
 # ============================================================================
