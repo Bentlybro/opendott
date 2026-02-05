@@ -1,0 +1,37 @@
+# Build directory
+build/
+twister-out/
+
+# Zephyr west workspace
+.west/
+
+# IDE
+.vscode/
+*.code-workspace
+.idea/
+
+# Compiled files
+*.o
+*.a
+*.elf
+*.bin
+*.hex
+*.map
+
+# Backup files
+*~
+*.bak
+*.swp
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Generated files
+compile_commands.json
+.cache/

@@ -1,0 +1,8 @@
+# OpenDOTT board defconfig
+
+if BOARD_OPENDOTT
+
+config BOARD
+	default "opendott"
+
+endif # BOARD_OPENDOTT
