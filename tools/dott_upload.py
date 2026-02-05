@@ -270,6 +270,13 @@ class DOTTClient:
         
         print(f"\n--- Starting Transfer ---\n")
         
+        # Try reading characteristic first (might reveal protocol info)
+        try:
+            initial_value = await self.client.read_gatt_char(UUID_DOTT_TRANSFER)
+            print(f"  Initial char value: {initial_value.hex()} ({len(initial_value)} bytes)")
+        except Exception as e:
+            print(f"  Could not read characteristic: {e}")
+        
         start_time = time.time()
         bytes_sent = 0
         chunk_num = 0
@@ -327,7 +334,14 @@ class DOTTClient:
         
         # Stabilization delay (as per app)
         print("Waiting for device to process...")
-        await asyncio.sleep(STABILIZATION_DELAY_MS / 1000.0)
+        await asyncio.sleep(1.0)  # Give it a full second
+        
+        # Check characteristic state after transfer
+        try:
+            final_value = await self.client.read_gatt_char(UUID_DOTT_TRANSFER)
+            print(f"  Final char value: {final_value.hex()} ({len(final_value)} bytes)")
+        except Exception as e:
+            print(f"  Could not read final state: {e}")
         
         return True
         
