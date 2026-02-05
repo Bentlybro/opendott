@@ -4,10 +4,19 @@ DOTT Image Upload Tool
 ======================
 Upload GIF images to DOTT wearable via Bluetooth LE.
 
-Protocol reverse-engineered from weardott Android app v1.0.5:
-- Service: 0483dadd-6c9d-6ca9-5d41-03ad4fff4bcc
-- Characteristic: 0x1525 (write raw data chunks)
-- Just stream raw bytes - no headers, no sequence numbers!
+Protocol fully reverse-engineered from weardott Android app v1.0.5:
+
+HOW IT WORKS:
+  1. Connect to device
+  2. Request high MTU (498 optimal, device negotiates down)
+  3. Find service 0483dadd-6c9d-6ca9-5d41-03ad4fff4bcc
+  4. Find characteristic 0x1525
+  5. Stream RAW GIF bytes in chunks of (MTU - 3)
+  6. 5ms delay between chunks
+  7. Done! No headers, no ACKs, no SMP - just raw bytes!
+
+CRITICAL: The app sends NO size header, NO sequence numbers, just raw GIF data.
+          Previous versions of this tool added a size header which was WRONG.
 
 Usage:
     python dott_upload.py scan                    # Find DOTT devices
@@ -221,8 +230,13 @@ class DOTTClient:
                     return False
         return False
         
-    async def upload_gif(self, image_path, force=False, send_size_header=True):
-        """Upload a GIF file to the device."""
+    async def upload_gif(self, image_path, force=False, send_size_header=False):
+        """
+        Upload a GIF file to the device.
+        
+        The official app sends RAW GIF BYTES with NO header.
+        Setting send_size_header=True is for experimentation only.
+        """
         print(f"\n{'='*60}")
         print(f"DOTT Image Upload")
         print(f"{'='*60}\n")
@@ -267,13 +281,14 @@ class DOTTClient:
         print(f"  Total chunks: {total_chunks}")
         print(f"  Write type: {self.write_type}")
         print(f"  Inter-chunk delay: {CHUNK_DELAY_MS}ms")
+        print(f"  Mode: {'RAW bytes (app protocol)' if not send_size_header else 'with size header (experimental)'}")
         
         print(f"\n--- Starting Transfer ---\n")
         
         # Try reading characteristic first (might reveal protocol info)
         try:
             initial_value = await self.client.read_gatt_char(UUID_DOTT_TRANSFER)
-            print(f"  Initial char value: {initial_value.hex()} ({len(initial_value)} bytes)")
+            print(f"  Initial char value: {initial_value.hex()[:64]}{'...' if len(initial_value) > 32 else ''} ({len(initial_value)} bytes)")
         except Exception as e:
             print(f"  Could not read characteristic: {e}")
         
@@ -282,14 +297,15 @@ class DOTTClient:
         chunk_num = 0
         last_progress_time = start_time
         
-        # Prepend file size as 4-byte little-endian header
-        # This tells the device how many bytes to expect
+        # Default: Send raw GIF data (matches official app behavior)
+        # Optional: Prepend size header for experimentation
         if send_size_header:
             size_header = struct.pack('<I', len(data))  # 4-byte little-endian
             transfer_data = size_header + data
-            print(f"  Sending size header: {len(data)} bytes (0x{len(data):08x})")
+            print(f"  [EXPERIMENTAL] Sending size header: {len(data)} bytes (0x{len(data):08x})")
         else:
             transfer_data = data
+            print(f"  Sending RAW GIF data (official protocol)")
         
         total_to_send = len(transfer_data)
         total_chunks = (total_to_send + chunk_size - 1) // chunk_size
@@ -327,9 +343,7 @@ class DOTTClient:
         
         print(f"\n{'='*60}")
         print(f"[OK] Upload Complete!")
-        print(f"  {len(data)} bytes image data in {elapsed:.2f}s ({rate:.1f} kbps)")
-        if send_size_header:
-            print(f"  (sent with 4-byte size header)")
+        print(f"  {len(data)} bytes sent in {elapsed:.2f}s ({rate:.1f} kbps)")
         print(f"{'='*60}\n")
         
         # Stabilization delay (as per app)
@@ -339,7 +353,7 @@ class DOTTClient:
         # Check characteristic state after transfer
         try:
             final_value = await self.client.read_gatt_char(UUID_DOTT_TRANSFER)
-            print(f"  Final char value: {final_value.hex()} ({len(final_value)} bytes)")
+            print(f"  Final char value: {final_value.hex()[:64]}{'...' if len(final_value) > 32 else ''} ({len(final_value)} bytes)")
         except Exception as e:
             print(f"  Could not read final state: {e}")
         
@@ -416,7 +430,7 @@ async def cmd_info(address):
         await client.disconnect()
 
 
-async def cmd_upload(address, image_path, force=False, no_header=False):
+async def cmd_upload(address, image_path, force=False, with_header=False):
     """Upload an image to the device."""
     if not os.path.exists(image_path):
         print(f"Error: File not found: {image_path}")
@@ -426,9 +440,12 @@ async def cmd_upload(address, image_path, force=False, no_header=False):
     
     try:
         await client.connect()
-        success = await client.upload_gif(image_path, force=force, send_size_header=not no_header)
+        success = await client.upload_gif(image_path, force=force, send_size_header=with_header)
         if success:
             print("The GIF should now be displaying on your DOTT!")
+        else:
+            if not with_header:
+                print("\nTip: If upload succeeded but display didn't change, try --header flag")
     finally:
         await client.disconnect()
 
@@ -483,8 +500,8 @@ Examples:
     parser.add_argument('-a', '--address', help='Device address (skip scan)')
     parser.add_argument('-f', '--force', action='store_true',
                        help='Force upload even if validation fails (dangerous!)')
-    parser.add_argument('--no-header', action='store_true',
-                       help='Skip sending 4-byte size header (try if default fails)')
+    parser.add_argument('--header', action='store_true',
+                       help='Add 4-byte size header (experimental - app does NOT do this)')
     
     args = parser.parse_args()
     
@@ -515,7 +532,7 @@ Examples:
         if not args.file:
             print("Error: upload requires a file argument")
             return
-        await cmd_upload(address, args.file, force=args.force, no_header=args.no_header)
+        await cmd_upload(address, args.file, force=args.force, with_header=args.header)
 
 
 if __name__ == '__main__':
