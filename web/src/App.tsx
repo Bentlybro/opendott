@@ -4,7 +4,7 @@ import { DeviceStatus } from './components/DeviceStatus';
 import { ImageUploader } from './components/ImageUploader';
 
 function App() {
-  const { state, isConnected, isUploading, deviceName, progress, error, logs, connect, disconnect, uploadImage, clearError } = useBle();
+  const { state, isConnected, isUploading, deviceName, deviceInfo, progress, error, logs, connect, disconnect, uploadImage, clearError } = useBle();
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -71,6 +71,7 @@ function App() {
           <DeviceStatus
             state={state}
             deviceName={deviceName}
+            deviceInfo={deviceInfo}
             onConnect={connect}
             onDisconnect={disconnect}
           />

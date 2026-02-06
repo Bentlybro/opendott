@@ -12,6 +12,14 @@
 // DOTT BLE Service and Characteristic UUIDs
 const DOTT_SERVICE_UUID = '0483dadd-6c9d-6ca9-5d41-03ad4fff4bcc';
 
+// Standard BLE UUIDs for device info
+const BATTERY_SERVICE_UUID = '0000180f-0000-1000-8000-00805f9b34fb';
+const BATTERY_LEVEL_UUID = '00002a19-0000-1000-8000-00805f9b34fb';
+const DEVICE_INFO_SERVICE_UUID = '0000180a-0000-1000-8000-00805f9b34fb';
+const FIRMWARE_REVISION_UUID = '00002a26-0000-1000-8000-00805f9b34fb';
+const MODEL_NUMBER_UUID = '00002a24-0000-1000-8000-00805f9b34fb';
+const MANUFACTURER_UUID = '00002a29-0000-1000-8000-00805f9b34fb';
+
 // Characteristic UUIDs (exact same as Python tool)
 const UUID_1525 = '00001525-0000-1000-8000-00805f9b34fb';  // Data
 const UUID_1528 = '00001528-0000-1000-8000-00805f9b34fb';  // Trigger
@@ -99,6 +107,13 @@ export function validateGifFrames(data: Uint8Array): { valid: boolean; message: 
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'uploading';
 
+export interface DeviceInfo {
+  batteryLevel?: number;  // 0-100
+  firmwareVersion?: string;
+  modelNumber?: string;
+  manufacturer?: string;
+}
+
 export interface BleCallbacks {
   onConnectionChange?: (state: ConnectionState) => void;
   onProgress?: (progress: number, bytesTransferred: number, totalBytes: number) => void;
@@ -128,6 +143,51 @@ class DottBleService {
 
   get deviceName(): string | undefined {
     return this.device?.name;
+  }
+
+  async getDeviceInfo(): Promise<DeviceInfo> {
+    if (!this.server?.connected) {
+      return {};
+    }
+
+    const info: DeviceInfo = {};
+
+    // Read battery level
+    try {
+      const batteryService = await this.server.getPrimaryService(BATTERY_SERVICE_UUID);
+      const batteryChar = await batteryService.getCharacteristic(BATTERY_LEVEL_UUID);
+      const batteryValue = await batteryChar.readValue();
+      info.batteryLevel = batteryValue.getUint8(0);
+    } catch {
+      // Battery service not available
+    }
+
+    // Read device info
+    try {
+      const deviceInfoService = await this.server.getPrimaryService(DEVICE_INFO_SERVICE_UUID);
+      
+      try {
+        const fwChar = await deviceInfoService.getCharacteristic(FIRMWARE_REVISION_UUID);
+        const fwValue = await fwChar.readValue();
+        info.firmwareVersion = new TextDecoder().decode(fwValue.buffer).replace(/\0/g, '');
+      } catch { /* Not available */ }
+
+      try {
+        const modelChar = await deviceInfoService.getCharacteristic(MODEL_NUMBER_UUID);
+        const modelValue = await modelChar.readValue();
+        info.modelNumber = new TextDecoder().decode(modelValue.buffer).replace(/\0/g, '');
+      } catch { /* Not available */ }
+
+      try {
+        const mfgChar = await deviceInfoService.getCharacteristic(MANUFACTURER_UUID);
+        const mfgValue = await mfgChar.readValue();
+        info.manufacturer = new TextDecoder().decode(mfgValue.buffer).replace(/\0/g, '');
+      } catch { /* Not available */ }
+    } catch {
+      // Device info service not available
+    }
+
+    return info;
   }
 
   setCallbacks(callbacks: BleCallbacks) {
@@ -160,7 +220,7 @@ class DottBleService {
           { services: [DOTT_SERVICE_UUID] },
           { namePrefix: 'Dott' }
         ],
-        optionalServices: [DOTT_SERVICE_UUID]
+        optionalServices: [DOTT_SERVICE_UUID, BATTERY_SERVICE_UUID, DEVICE_INFO_SERVICE_UUID]
       });
 
       if (!this.device) {

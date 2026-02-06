@@ -1,17 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
-import { bleService, type ConnectionState } from '../lib/ble';
+import { bleService, type ConnectionState, type DeviceInfo } from '../lib/ble';
 
 export interface UseBleReturn {
   state: ConnectionState;
   isConnected: boolean;
   isUploading: boolean;
   deviceName: string | undefined;
+  deviceInfo: DeviceInfo | null;
   progress: number;
   error: Error | null;
   logs: string[];
   connect: () => Promise<boolean>;
   disconnect: () => Promise<void>;
   uploadImage: (data: Uint8Array) => Promise<boolean>;
+  refreshDeviceInfo: () => Promise<void>;
   clearError: () => void;
   clearLogs: () => void;
 }
@@ -21,6 +23,7 @@ export function useBle(): UseBleReturn {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<Error | null>(null);
   const [deviceName, setDeviceName] = useState<string | undefined>();
+  const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
 
   useEffect(() => {
@@ -31,6 +34,7 @@ export function useBle(): UseBleReturn {
           setDeviceName(bleService.deviceName);
         } else if (newState === 'disconnected') {
           setDeviceName(undefined);
+          setDeviceInfo(null);
           setProgress(0);
         }
       },
@@ -56,11 +60,25 @@ export function useBle(): UseBleReturn {
     };
   }, []);
 
+  const refreshDeviceInfo = useCallback(async () => {
+    try {
+      const info = await bleService.getDeviceInfo();
+      setDeviceInfo(info);
+    } catch {
+      // Ignore errors
+    }
+  }, []);
+
   const connect = useCallback(async () => {
     setError(null);
     setLogs([]);
-    return bleService.connect();
-  }, []);
+    const result = await bleService.connect();
+    if (result) {
+      // Fetch device info after connecting
+      await refreshDeviceInfo();
+    }
+    return result;
+  }, [refreshDeviceInfo]);
 
   const disconnect = useCallback(async () => {
     setError(null);
@@ -86,12 +104,14 @@ export function useBle(): UseBleReturn {
     isConnected: state === 'connected' || state === 'uploading',
     isUploading: state === 'uploading',
     deviceName,
+    deviceInfo,
     progress,
     error,
     logs,
     connect,
     disconnect,
     uploadImage,
+    refreshDeviceInfo,
     clearError,
     clearLogs,
   };
