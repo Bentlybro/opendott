@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>OpenDOTT</title>
+  <script>
+    // SPA redirect for GitHub Pages
+    // Redirects 404s to index.html with the path in query string
+    const path = window.location.pathname;
+    window.location.replace('/' + '?p=' + encodeURIComponent(path));
+  </script>
+</head>
+<body>
+  Redirecting...
+</body>
+</html>
