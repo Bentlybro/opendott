@@ -1,9 +1,19 @@
 /*
- * Copyright (c) 2024 OpenDOTT Project
+ * OpenDOTT Device Tree
  * SPDX-License-Identifier: MIT
  * 
- * Device Tree for OpenDOTT (DOTT Wearable Display)
- * Based on nRF52840 + GC9A01 display + GD25Q128 flash
+ * nRF52840 + GC9A01 display + GD25Q128 flash
+ * 
+ * PIN ASSIGNMENTS (from firmware reverse engineering):
+ * - P0.1  = Backlight PWM
+ * - P0.2  = Display CS (guess)
+ * - P0.3  = Display RESET (guess)  
+ * - P0.4  = Display DC (from firmware GPIO spec)
+ * - P0.5  = Button (guess)
+ * - P0.15 = Display SPI SCK (confirmed)
+ * - P0.16 = Display SPI MOSI (confirmed)
+ * - P0.17 = QSPI CS (confirmed)
+ * - P0.19-23 = QSPI data (confirmed)
  */
 
 /dts-v1/;
@@ -24,34 +34,26 @@
     };
 
     aliases {
-        led0 = &led0;
         sw0 = &button0;
         spi-flash0 = &gd25q128;
-    };
-
-    leds {
-        compatible = "gpio-leds";
-        led0: led_0 {
-            /* Status LED - adjust pin based on actual hardware */
-            gpios = <&gpio0 13 GPIO_ACTIVE_LOW>;
-            label = "Status LED";
-        };
+        display0 = &gc9a01;
     };
 
     buttons {
         compatible = "gpio-keys";
         button0: button_0 {
-            /* Main button - adjust pin based on actual hardware */
-            gpios = <&gpio0 11 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+            /* Button - best guess P0.5 */
+            gpios = <&gpio0 5 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
             label = "Main Button";
+            zephyr,code = <INPUT_KEY_0>;
         };
     };
 
-    /* Display backlight PWM */
+    /* Display backlight via PWM */
     pwmleds {
         compatible = "pwm-leds";
         backlight: backlight {
-            pwms = <&pwm0 0 PWM_MSEC(20) PWM_POLARITY_INVERTED>;
+            pwms = <&pwm0 0 PWM_MSEC(20) PWM_POLARITY_NORMAL>;
             label = "Display Backlight";
         };
     };
@@ -103,21 +105,21 @@
     status = "okay";
 };
 
-/* SPI for display */
-&spi1 {
+/* SPI3 for display - uses high-speed SPIM3 @ 32MHz */
+&spi3 {
     compatible = "nordic,nrf-spim";
     status = "okay";
-    pinctrl-0 = <&spi1_default>;
-    pinctrl-1 = <&spi1_sleep>;
+    pinctrl-0 = <&spi3_default>;
+    pinctrl-1 = <&spi3_sleep>;
     pinctrl-names = "default", "sleep";
-    cs-gpios = <&gpio0 5 GPIO_ACTIVE_LOW>;
+    cs-gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;  /* CS on P0.2 (guess) */
 
     gc9a01: gc9a01@0 {
         compatible = "galaxycore,gc9x01x";
         reg = <0>;
         spi-max-frequency = <32000000>;
-        cmd-data-gpios = <&gpio0 6 GPIO_ACTIVE_LOW>;
-        reset-gpios = <&gpio0 7 GPIO_ACTIVE_LOW>;
+        cmd-data-gpios = <&gpio0 4 GPIO_ACTIVE_HIGH>;  /* DC on P0.4 (from firmware) */
+        reset-gpios = <&gpio0 3 GPIO_ACTIVE_LOW>;      /* RESET on P0.3 (guess) */
         pixel-format = <0>;  /* RGB565 */
         width = <240>;
         height = <240>;
@@ -125,7 +127,7 @@
     };
 };
 
-/* QSPI for external flash */
+/* QSPI for external flash - CONFIRMED pins from firmware */
 &qspi {
     status = "okay";
     pinctrl-0 = <&qspi_default>;
@@ -148,16 +150,16 @@
             #address-cells = <1>;
             #size-cells = <1>;
 
-            /* LittleFS partition for images */
+            /* LittleFS partition for GIF images */
             lfs_partition: partition@0 {
                 label = "lfs_storage";
-                reg = <0x0 0x1000000>;  /* Full 16MB for images */
+                reg = <0x0 0x1000000>;  /* Full 16MB */
             };
         };
     };
 };
 
-/* PWM for backlight */
+/* PWM for backlight on P0.1 */
 &pwm0 {
     status = "okay";
     pinctrl-0 = <&pwm0_default>;
@@ -165,13 +167,9 @@
     pinctrl-names = "default", "sleep";
 };
 
-/* USB */
+/* USB CDC for console/debug */
 &usbd {
     status = "okay";
-
-    cdc_acm_uart0: cdc_acm_uart0 {
-        compatible = "zephyr,cdc-acm-uart";
-    };
 };
 
 &zephyr_udc0 {

@@ -1,26 +1,31 @@
 /*
  * Pin Control for OpenDOTT
- * NOTE: These pins are estimates - need to verify with actual hardware
+ * 
+ * PINS EXTRACTED FROM ORIGINAL FIRMWARE ANALYSIS:
+ * - QSPI: Standard nRF52840 pins (CONFIRMED)
+ * - SPI Display: P0.15 SCK, P0.16 MOSI (HIGH CONFIDENCE)
+ * - PWM Backlight: P0.1 (MEDIUM CONFIDENCE)
  */
 
 &pinctrl {
-    /* SPI1 for GC9A01 display */
-    spi1_default: spi1_default {
+    /* SPI3 for GC9A01 display - uses SPIM3 (high speed) */
+    spi3_default: spi3_default {
         group1 {
-            psels = <NRF_PSEL(SPIM_SCK, 0, 3)>,
-                    <NRF_PSEL(SPIM_MOSI, 0, 4)>;
+            psels = <NRF_PSEL(SPIM_SCK, 0, 15)>,
+                    <NRF_PSEL(SPIM_MOSI, 0, 16)>;
+            nordic,drive-mode = <NRF_DRIVE_H0H1>;
         };
     };
 
-    spi1_sleep: spi1_sleep {
+    spi3_sleep: spi3_sleep {
         group1 {
-            psels = <NRF_PSEL(SPIM_SCK, 0, 3)>,
-                    <NRF_PSEL(SPIM_MOSI, 0, 4)>;
+            psels = <NRF_PSEL(SPIM_SCK, 0, 15)>,
+                    <NRF_PSEL(SPIM_MOSI, 0, 16)>;
             low-power-enable;
         };
     };
 
-    /* QSPI for GD25Q128 external flash */
+    /* QSPI for GD25Q128 external flash - CONFIRMED from firmware */
     qspi_default: qspi_default {
         group1 {
             psels = <NRF_PSEL(QSPI_SCK, 0, 19)>,
@@ -45,16 +50,16 @@
         };
     };
 
-    /* PWM for backlight */
+    /* PWM for backlight - P0.1 from firmware analysis */
     pwm0_default: pwm0_default {
         group1 {
-            psels = <NRF_PSEL(PWM_OUT0, 0, 8)>;
+            psels = <NRF_PSEL(PWM_OUT0, 0, 1)>;
         };
     };
 
     pwm0_sleep: pwm0_sleep {
         group1 {
-            psels = <NRF_PSEL(PWM_OUT0, 0, 8)>;
+            psels = <NRF_PSEL(PWM_OUT0, 0, 1)>;
             low-power-enable;
         };
     };

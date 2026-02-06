@@ -1,0 +1,54 @@
+name: Build OpenDOTT Firmware
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: ghcr.io/zephyrproject-rtos/ci:v0.26.13
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: opendott
+
+      - name: Initialize Zephyr workspace
+        run: |
+          west init -l opendott
+          west update --narrow -o=--depth=1
+
+      - name: Build firmware
+        run: |
+          west build -b opendott opendott -- -DBOARD_ROOT=$(pwd)/opendott
+          
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: opendott-firmware
+          path: |
+            build/zephyr/zephyr.bin
+            build/zephyr/zephyr.hex
+            build/zephyr/zephyr.elf
+          if-no-files-found: error
+
+      - name: Build with MCUboot (signed)
+        run: |
+          west build -b opendott opendott -- \
+            -DBOARD_ROOT=$(pwd)/opendott \
+            -DCONFIG_BOOTLOADER_MCUBOOT=y
+        continue-on-error: true
+
+      - name: Upload MCUboot artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: opendott-firmware-mcuboot
+          path: |
+            build/zephyr/zephyr.signed.bin
+            build/zephyr/zephyr.signed.hex
+          if-no-files-found: warn
