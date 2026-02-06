@@ -309,49 +309,85 @@ export class SMPClient {
   async uploadImage(firmware: Uint8Array, onProgress?: (percent: number) => void): Promise<{ success: boolean; hash: Uint8Array | null }> {
     this.log(`Starting firmware upload (${firmware.length} bytes)...`);
     
+    // Pre-compute hash for first chunk and later verification
+    const firmwareHash = await sha256(firmware);
+    this.log(`Firmware hash: ${Array.from(firmwareHash.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join('')}...`);
+    
     const CHUNK_SIZE = 128;  // Bytes per packet (conservative for BLE)
     let offset = 0;
+    let lastPercent = -1;
     
     while (offset < firmware.length) {
       const chunk = firmware.slice(offset, Math.min(offset + CHUNK_SIZE, firmware.length));
       
       // Build upload packet with CBOR payload
-      const payload = encodeCBOR({
+      // First chunk needs image length, subsequent chunks don't
+      const payloadObj: Record<string, unknown> = {
         'off': offset,
         'data': chunk,
-        'len': firmware.length,
-      });
+      };
       
+      // Only include 'len' and 'sha' on first chunk
+      if (offset === 0) {
+        payloadObj['len'] = firmware.length;
+        payloadObj['sha'] = firmwareHash;
+      }
+      
+      const payload = encodeCBOR(payloadObj);
       const packet = buildSMPPacket(OP_WRITE, GROUP_IMAGE, CMD_IMAGE_UPLOAD, payload, this.seq++);
-      const response = await this.sendAndWait(packet, 10000);
+      
+      // First chunk needs longer timeout (device allocates flash)
+      const timeout = offset === 0 ? 30000 : 10000;
+      
+      // Retry logic for transient failures
+      let response: Uint8Array | null = null;
+      for (let retry = 0; retry < 3; retry++) {
+        response = await this.sendAndWait(packet, timeout);
+        if (response) break;
+        if (retry < 2) {
+          this.log(`Retry ${retry + 1} at offset ${offset}...`);
+          await new Promise(r => setTimeout(r, 500));
+        }
+      }
       
       if (!response) {
-        this.log(`Upload failed at offset ${offset}: no response`);
+        this.log(`Upload failed at offset ${offset}: no response after 3 retries`);
         return { success: false, hash: null };
       }
       
       const parsed = parseSMPResponse(response);
+      
+      // Log first response for debugging
+      if (offset === 0) {
+        console.log('[SMP] First upload response:', JSON.stringify(parsed.payload));
+      }
+      
       if (parsed.payload['rc'] !== undefined && parsed.payload['rc'] !== 0) {
         this.log(`Upload failed at offset ${offset}: rc=${parsed.payload['rc']}`);
         return { success: false, hash: null };
       }
       
-      offset += chunk.length;
+      // Check if device reports different offset (it may have already received this chunk)
+      const nextOff = parsed.payload['off'] as number | undefined;
+      if (nextOff !== undefined && nextOff > offset) {
+        this.log(`Device requested skip to offset ${nextOff}`);
+        offset = nextOff;
+      } else {
+        offset += chunk.length;
+      }
+      
       const percent = Math.floor((offset / firmware.length) * 100);
       onProgress?.(percent);
       
-      if (percent % 10 === 0) {
+      if (percent !== lastPercent && percent % 10 === 0) {
         this.log(`Upload progress: ${percent}%`);
+        lastPercent = percent;
       }
     }
     
     this.log('Firmware upload complete');
     
-    // Compute SHA256 hash of firmware for testImage
-    const hash = await sha256(firmware);
-    this.log(`Firmware hash: ${Array.from(hash.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join('')}...`);
-    
-    return { success: true, hash };
+    return { success: true, hash: firmwareHash };
   }
 
   async testImage(hash: Uint8Array): Promise<boolean> {
