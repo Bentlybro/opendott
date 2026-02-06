@@ -192,9 +192,20 @@ export async function convertAnimatedGif(
     encoder.on('finished', (blob: Blob) => {
       blob.arrayBuffer().then(buffer => {
         onProgress?.({ stage: 'encoding', progress: 100 });
+        const data = new Uint8Array(buffer);
         console.log(`Converted GIF: ${selectedFrames.length} frames, ${buffer.byteLength} bytes`);
+        
+        // Debug: Check NETSCAPE extension
+        const str = String.fromCharCode.apply(null, Array.from(data.slice(0, 500)));
+        const netIdx = str.indexOf('NETSCAPE');
+        if (netIdx >= 0) {
+          console.log(`✓ NETSCAPE found at ${netIdx}, loop bytes: ${data[netIdx+11]}, ${data[netIdx+12]}, ${data[netIdx+13]}`);
+        } else {
+          console.warn('✗ NO NETSCAPE EXTENSION - GIF will NOT loop!');
+        }
+        
         resolve({
-          data: new Uint8Array(buffer),
+          data,
           frameCount: selectedFrames.length,
           originalSize: { width: originalWidth, height: originalHeight }
         });
