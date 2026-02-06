@@ -26,10 +26,20 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string | null>(null);
 
+  // Limits
+  const HARD_LIMIT_KB = 500;  // Block files over this
+  const WARN_LIMIT_KB = 50;   // Warn about files over this
+
   const handleFile = useCallback(async (file: File) => {
     setError(null);
     setUploadSuccess(false);
     setProcessedImage(null);
+    
+    // Hard file size limit
+    if (file.size > HARD_LIMIT_KB * 1024) {
+      setError(`File too large (${Math.round(file.size / 1024)}KB). Maximum is ${HARD_LIMIT_KB}KB. Please optimize your GIF first — try ezgif.com/optimize`);
+      return;
+    }
     
     try {
       // First validate and get original info
@@ -304,11 +314,19 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
             </div>
           )}
           
-          {/* Size warning */}
-          {processedImage.convertedSize > 50 * 1024 && (
+          {/* Size warning with optimization link */}
+          {processedImage.convertedSize > WARN_LIMIT_KB * 1024 && (
             <div className="mt-4 p-3 rounded-lg bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 text-sm">
               <strong>Warning:</strong> File is {Math.round(processedImage.convertedSize / 1024)}KB. 
-              DOTT only has 256KB RAM - GIFs over ~50KB may not loop properly. Try a simpler animation.
+              GIFs over ~{WARN_LIMIT_KB}KB may not loop properly on DOTT.
+              <a 
+                href="https://ezgif.com/optimize" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="block mt-2 text-blue-400 hover:text-blue-300 underline"
+              >
+                → Optimize your GIF at ezgif.com
+              </a>
             </div>
           )}
           
