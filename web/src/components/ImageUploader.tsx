@@ -1,7 +1,8 @@
 import { useCallback, useState } from 'react';
-import { Upload, Image as ImageIcon, X, Check, Loader2, RefreshCw } from 'lucide-react';
+import { Upload, Image as ImageIcon, X, Check, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { validateImage, processImageForDevice, formatFileSize, type ImageInfo } from '../lib/image';
+import { optimizeGifAggressive } from '../lib/gifOptimizer';
 
 interface ImageUploaderProps {
   isConnected: boolean;
@@ -25,6 +26,7 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
   const [error, setError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string | null>(null);
+  const [isOptimizing, setIsOptimizing] = useState(false);
 
   // Limits
   const HARD_LIMIT_KB = 500;  // Block files over this
@@ -157,6 +159,76 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
     setProcessedImage(null);
     setError(null);
     setUploadSuccess(false);
+  }, [processedImage]);
+
+  const handleOptimize = useCallback(async () => {
+    if (!processedImage) return;
+    
+    setIsOptimizing(true);
+    setError(null);
+    
+    try {
+      const result = await optimizeGifAggressive(processedImage.convertedData);
+      
+      if (!result.success || !result.data) {
+        setError(result.error || 'Optimization failed');
+        return;
+      }
+      
+      // Update with optimized data
+      const blob = new Blob([result.data as BlobPart], { type: 'image/gif' });
+      const newUrl = URL.createObjectURL(blob);
+      
+      // Revoke old URL
+      if (processedImage.convertedDataUrl) {
+        URL.revokeObjectURL(processedImage.convertedDataUrl);
+      }
+      
+      // Count frames in optimized GIF
+      let frameCount = 0;
+      let pos = 13;
+      if (result.data[10] & 0x80) {
+        pos += 3 * (2 ** ((result.data[10] & 0x07) + 1));
+      }
+      while (pos < result.data.length - 1) {
+        if (result.data[pos] === 0x2C) {
+          frameCount++;
+          pos += 10;
+          if (result.data[pos - 1] & 0x80) {
+            pos += 3 * (2 ** ((result.data[pos - 1] & 0x07) + 1));
+          }
+          pos += 1;
+          while (pos < result.data.length && result.data[pos] !== 0) {
+            pos += result.data[pos] + 1;
+          }
+          pos += 1;
+        } else if (result.data[pos] === 0x3B) {
+          break;
+        } else if (result.data[pos] === 0x21) {
+          pos += 2;
+          while (pos < result.data.length && result.data[pos] !== 0) {
+            pos += result.data[pos] + 1;
+          }
+          pos += 1;
+        } else {
+          pos += 1;
+        }
+      }
+      
+      setProcessedImage({
+        ...processedImage,
+        convertedData: result.data,
+        convertedDataUrl: newUrl,
+        convertedSize: result.optimizedSize,
+        wasConverted: true,  // Mark as converted since we optimized
+        frameCount: Math.max(1, frameCount),
+      });
+      
+    } catch (err) {
+      setError(`Optimization failed: ${(err as Error).message}`);
+    } finally {
+      setIsOptimizing(false);
+    }
   }, [processedImage]);
 
   return (
@@ -305,8 +377,8 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
           
           {/* Status message */}
           {processedImage.wasConverted ? (
-            <div className="mt-4 p-3 rounded-lg bg-blue-500/20 border border-blue-500/50 text-blue-400 text-sm">
-              <strong>Converted!</strong> PNG/JPEG converted to GIF format for device compatibility.
+            <div className="mt-4 p-3 rounded-lg bg-purple-500/20 border border-purple-500/50 text-purple-400 text-sm">
+              <strong>Optimized!</strong> {formatFileSize(processedImage.convertedSize)}, {processedImage.frameCount} frame{(processedImage.frameCount ?? 0) !== 1 ? 's' : ''}.
             </div>
           ) : (
             <div className="mt-4 p-3 rounded-lg bg-green-500/20 border border-green-500/50 text-green-400 text-sm">
@@ -314,19 +386,44 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
             </div>
           )}
           
-          {/* Size warning with optimization link */}
+          {/* Size warning with optimization options */}
           {processedImage.convertedSize > WARN_LIMIT_KB * 1024 && (
             <div className="mt-4 p-3 rounded-lg bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 text-sm">
               <strong>Warning:</strong> File is {Math.round(processedImage.convertedSize / 1024)}KB. 
               GIFs over ~{WARN_LIMIT_KB}KB may not loop properly on DOTT.
-              <a 
-                href="https://ezgif.com/optimize" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="block mt-2 text-blue-400 hover:text-blue-300 underline"
-              >
-                → Optimize your GIF at ezgif.com
-              </a>
+              
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  onClick={handleOptimize}
+                  disabled={isOptimizing}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2",
+                    "bg-purple-500 text-white hover:bg-purple-600 transition-colors",
+                    isOptimizing && "opacity-50 cursor-not-allowed"
+                  )}
+                >
+                  {isOptimizing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Optimizing...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      Auto-Optimize
+                    </>
+                  )}
+                </button>
+                
+                <a 
+                  href="https://ezgif.com/optimize" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 rounded-lg text-sm font-medium bg-zinc-700 text-zinc-300 hover:bg-zinc-600 transition-colors"
+                >
+                  Use ezgif.com
+                </a>
+              </div>
             </div>
           )}
           

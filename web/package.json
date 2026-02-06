@@ -12,6 +12,7 @@
   "dependencies": {
     "clsx": "^2.1.1",
     "gif.js-upgrade": "^0.2.1",
+    "gifsicle-wasm-browser": "^1.5.19",
     "gifuct-js": "^2.1.2",
     "lucide-react": "^0.563.0",
     "react": "^19.2.0",
