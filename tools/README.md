@@ -1,94 +1,61 @@
-# DOTT Tools
+# OpenDOTT Python Tools
 
-Python tools for interacting with the DOTT wearable via Bluetooth LE.
+Command-line tools for interacting with DOTT wearable displays.
 
-## Setup
+## Requirements
 
-```bash
-pip install -r requirements.txt
-```
-
-## Usage
-
-### Scan for devices
-
-```bash
-python dott_upload.py scan
-```
-
-### Get device info
-
-```bash
-python dott_upload.py info
-# or with specific address:
-python dott_upload.py info -a XX:XX:XX:XX:XX:XX
-```
-
-### Test connection and protocols
-
-```bash
-python dott_upload.py test
-```
-
-This will try:
-- SMP Echo command
-- Image state query
-- Filesystem read
-- Various raw write formats
-
-### Upload an image
-
-```bash
-python dott_upload.py upload image.gif
-```
-
-Tries multiple methods:
-1. MCUmgr Filesystem (SMP Group 8)
-2. Custom service (f000ffe1)
-
-## Protocol Notes
-
-### MCUmgr SMP
-
-The device supports Zephyr's MCUmgr protocol over BLE:
-
-- **Service UUID:** `8d53dc1d-1db7-4cd3-868b-8a527460aa84`
-- **Characteristic:** `da2e7828-fbce-4e01-ae9e-261174997c48`
-
-Packet format:
-```
-[Op:1][Flags:1][Len:2][Group:2][Seq:1][Cmd:1][CBOR payload...]
-```
-
-### Custom Services
-
-Two custom services for data transfer:
-
-1. **TI-style:** `f000ffe0-0451-4000-b000-000000000000`
-   - Write: `f000ffe1-...`
-   - Notify: `f000ffe2-...`
-
-2. **Legacy:** `0xFFF0`
-   - Notify: `0xFFF1`
-   - Write: `0xFFF2`
-
-## Troubleshooting
-
-### "bleak not installed"
 ```bash
 pip install bleak
 ```
 
-### "cbor2 not installed"
+## Tools
+
+### dott_upload.py - Upload Images
+
+Upload GIF images to your DOTT device:
+
 ```bash
-pip install cbor2
+# Scan and upload
+python dott_upload.py upload image.gif
+
+# Upload to specific device
+python dott_upload.py upload image.gif -a E2:E2:B4:44:D5:30
+
+# Validate without uploading
+python dott_upload.py validate image.gif
+
+# Get device info
+python dott_upload.py info
 ```
 
-### No devices found
-- Make sure DOTT is powered on
-- Check if it's already connected to another device
-- Try moving closer to the device
+**GIF Requirements:**
+- Format: GIF87a or GIF89a
+- Size: 240×240 pixels
+- **Important:** Must have full frames (no delta/optimized frames)
 
-### GATT errors (0xA0, 0xA4)
-- The device expects structured packets, not raw data
-- These errors indicate invalid operation or format
+Use `gifsicle --unoptimize input.gif -o output.gif` to fix optimized GIFs.
+
+### dott_discover.py - Discover Devices
+
+Scan for DOTT devices and show their services:
+
+```bash
+python dott_discover.py
+```
+
+### dott_flash.py - Firmware Flashing
+
+Flash firmware via BLE DFU (requires DFU mode):
+
+```bash
+python dott_flash.py firmware.bin
+```
+
+## Test Files
+
+- `full_frames.gif` - Working test GIF (4 frames, full 240×240)
+- `test_image.gif` - Example GIF (may have partial frames)
+
+## Protocol
+
+See [docs/BLE_PROTOCOL.md](../docs/BLE_PROTOCOL.md) for full protocol documentation.
