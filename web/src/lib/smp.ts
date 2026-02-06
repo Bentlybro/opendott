@@ -453,4 +453,28 @@ export class SMPClient {
     this.log('Reset command sent');
     return true;
   }
+
+  async eraseSlot(slot: number): Promise<boolean> {
+    this.log(`Erasing slot ${slot}...`);
+    
+    const payload = encodeCBOR({ 'slot': slot });
+    const packet = buildSMPPacket(OP_WRITE, GROUP_IMAGE, 0x05, payload, this.seq++);  // CMD_IMAGE_ERASE = 0x05
+    const response = await this.sendAndWait(packet, 30000);  // Erase can take time
+    
+    if (!response) {
+      this.log('No response to erase command');
+      return false;
+    }
+    
+    const parsed = parseSMPResponse(response);
+    console.log('[SMP] Erase response:', JSON.stringify(parsed.payload));
+    
+    if (parsed.payload['rc'] !== undefined && parsed.payload['rc'] !== 0) {
+      this.log(`Erase failed: rc=${parsed.payload['rc']}`);
+      return false;
+    }
+    
+    this.log(`Slot ${slot} erased`);
+    return true;
+  }
 }

@@ -100,6 +100,13 @@ export function FlashPage() {
         for (const img of images) {
           addLog(`  Slot ${img.slot}: v${img.version} ${img.active ? '(active)' : ''} ${img.confirmed ? '(confirmed)' : ''}`);
         }
+        
+        // If slot 1 exists, erase it first to ensure clean upload
+        const slot1 = images.find(img => img.slot === 1);
+        if (slot1) {
+          addLog('Erasing slot 1 for clean upload...');
+          await smp.eraseSlot(1);
+        }
       }
 
       // Upload firmware
