@@ -183,6 +183,17 @@ class DottBleService {
       this.log('============================================================');
       this.log(`Uploading ${totalBytes} bytes`);
       this.log('============================================================');
+      
+      // Debug: log first few bytes to verify GIF header
+      const header = Array.from(data.slice(0, 20)).map(b => b.toString(16).padStart(2, '0')).join(' ');
+      this.log(`First 20 bytes: ${header}`);
+      
+      // Verify it's a GIF
+      if (data[0] === 0x47 && data[1] === 0x49 && data[2] === 0x46) {
+        const width = data[6] | (data[7] << 8);
+        const height = data[8] | (data[9] << 8);
+        this.log(`GIF detected: ${width}x${height}`);
+      }
 
       // Step 1: TRIGGER - Write FILE SIZE (4 bytes LE) to 0x1528 with response
       // This is EXACTLY what Python does: struct.pack('<I', len(gif_data))
