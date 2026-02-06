@@ -15,6 +15,25 @@ import GIF from 'gif.js-upgrade';
 const TARGET_SIZE = 240;
 const MAX_FRAMES = 8;   // DOTT has 256KB RAM - can only buffer ~4 frames decoded
 const MAX_FILE_SIZE = 50 * 1024;  // 50KB target - DOTT struggles with large GIFs
+const POSTERIZE_LEVELS = 32;  // Reduce colors by quantizing to N levels per channel
+
+/**
+ * Posterize canvas to reduce colors (helps with GIF compression)
+ */
+function posterizeCanvas(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  const factor = 256 / POSTERIZE_LEVELS;
+  
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = Math.floor(data[i] / factor) * factor;     // R
+    data[i + 1] = Math.floor(data[i + 1] / factor) * factor; // G
+    data[i + 2] = Math.floor(data[i + 2] / factor) * factor; // B
+    // Alpha (data[i + 3]) unchanged
+  }
+  
+  ctx.putImageData(imageData, 0, 0);
+}
 
 // Debug: set to true to skip NETSCAPE injection (for testing if it causes issues)
 const SKIP_NETSCAPE = false;
@@ -223,6 +242,9 @@ export async function convertAnimatedGif(
     const y = (TARGET_SIZE - scaledH) / 2;
     
     ctx.drawImage(fullCanvas, x, y, scaledW, scaledH);
+    
+    // Posterize to reduce colors (smaller file size for DOTT's limited RAM)
+    posterizeCanvas(ctx, TARGET_SIZE, TARGET_SIZE);
     
     // Add frame to encoder
     // dispose: 1 = "do not dispose" (keep previous frame) - matches Giphy GIF behavior
