@@ -15,6 +15,48 @@ import GIF from 'gif.js-upgrade';
 const TARGET_SIZE = 240;
 const MAX_FRAMES = 30;  // Limit frame count to keep file size reasonable
 
+/**
+ * Inject NETSCAPE extension for looping if missing.
+ * Must be inserted right after the global color table, before the first frame.
+ */
+function ensureNetscapeLoop(data: Uint8Array): Uint8Array<ArrayBuffer> {
+  // Check if NETSCAPE already exists
+  const str = String.fromCharCode.apply(null, Array.from(data.slice(0, 500)));
+  if (str.includes('NETSCAPE')) {
+    console.log('NETSCAPE already present');
+    return new Uint8Array(data) as Uint8Array<ArrayBuffer>;
+  }
+  
+  // Find insertion point: after header (6) + LSD (7) + global color table
+  let insertPos = 13;  // After header + logical screen descriptor
+  if (data[10] & 0x80) {  // Global color table present
+    const gctSize = 3 * (2 ** ((data[10] & 0x07) + 1));
+    insertPos += gctSize;
+  }
+  
+  // NETSCAPE2.0 extension block (19 bytes)
+  // 21 FF 0B 4E 45 54 53 43 41 50 45 32 2E 30 03 01 00 00 00
+  const netscape = new Uint8Array([
+    0x21, 0xFF,       // Extension introducer + Application extension label
+    0x0B,             // Block size (11 bytes)
+    0x4E, 0x45, 0x54, 0x53, 0x43, 0x41, 0x50, 0x45,  // "NETSCAPE"
+    0x32, 0x2E, 0x30, // "2.0"
+    0x03,             // Sub-block size (3 bytes)
+    0x01,             // Sub-block ID (always 1 for loop)
+    0x00, 0x00,       // Loop count: 0 = infinite (little-endian)
+    0x00              // Block terminator
+  ]);
+  
+  // Create new array with NETSCAPE inserted
+  const result = new Uint8Array(data.length + netscape.length);
+  result.set(data.slice(0, insertPos), 0);
+  result.set(netscape, insertPos);
+  result.set(data.slice(insertPos), insertPos + netscape.length);
+  
+  console.log(`Injected NETSCAPE extension at position ${insertPos}`);
+  return result as Uint8Array<ArrayBuffer>;
+}
+
 export interface ConversionResult {
   data: Uint8Array;
   frameCount: number;
@@ -192,16 +234,19 @@ export async function convertAnimatedGif(
     encoder.on('finished', (blob: Blob) => {
       blob.arrayBuffer().then(buffer => {
         onProgress?.({ stage: 'encoding', progress: 100 });
-        const data = new Uint8Array(buffer);
+        let data = new Uint8Array(buffer);
         console.log(`Converted GIF: ${selectedFrames.length} frames, ${buffer.byteLength} bytes`);
         
-        // Debug: Check NETSCAPE extension
+        // Ensure NETSCAPE loop extension is present (gif.js bug workaround)
+        data = ensureNetscapeLoop(data);
+        
+        // Verify NETSCAPE extension
         const str = String.fromCharCode.apply(null, Array.from(data.slice(0, 500)));
         const netIdx = str.indexOf('NETSCAPE');
         if (netIdx >= 0) {
-          console.log(`✓ NETSCAPE found at ${netIdx}, loop bytes: ${data[netIdx+11]}, ${data[netIdx+12]}, ${data[netIdx+13]}`);
+          console.log(`✓ NETSCAPE found at ${netIdx}, loop count: ${data[netIdx+16] | (data[netIdx+17] << 8)} (0=infinite)`);
         } else {
-          console.warn('✗ NO NETSCAPE EXTENSION - GIF will NOT loop!');
+          console.error('✗ NETSCAPE injection failed!');
         }
         
         resolve({
@@ -257,7 +302,9 @@ export async function convertStaticToGif(file: File): Promise<Uint8Array> {
       encoder.on('finished', (blob: Blob) => {
         blob.arrayBuffer().then(buffer => {
           URL.revokeObjectURL(url);
-          resolve(new Uint8Array(buffer));
+          // Ensure NETSCAPE loop extension (even for single-frame, for consistency)
+          const data = ensureNetscapeLoop(new Uint8Array(buffer as ArrayBuffer));
+          resolve(data);
         });
       });
       
