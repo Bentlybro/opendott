@@ -31,6 +31,36 @@ const DEFAULT_MTU = 517;     // Web Bluetooth typically negotiates this
 const MAX_CHUNK_SIZE = 244;  // Safer chunk size (like Python with MTU 247)
 const CHUNK_DELAY_MS = 10;   // Slightly slower for reliability
 const MAX_RETRIES = 3;
+const MAX_RECONNECT_ATTEMPTS = 2;
+
+/**
+ * User-friendly error messages for common BLE issues
+ */
+function friendlyError(error: Error): Error {
+  const msg = error.message.toLowerCase();
+  
+  if (msg.includes('gatt server is disconnected') || msg.includes('gatt operation failed')) {
+    return new Error('Connection lost. Please try again. If it keeps happening, restart your DOTT device.');
+  }
+  if (msg.includes('no services matching uuid')) {
+    return new Error('Device not compatible. Make sure you have the updated DOTT firmware installed.');
+  }
+  if (msg.includes('user cancelled') || msg.includes('user canceled')) {
+    return new Error('Connection cancelled. Click "Connect" to try again.');
+  }
+  if (msg.includes('bluetooth adapter not available') || msg.includes('bluetooth is not available')) {
+    return new Error('Bluetooth is turned off. Please enable Bluetooth on your device.');
+  }
+  if (msg.includes('not found')) {
+    return new Error('DOTT not found. Make sure it\'s turned on and in range.');
+  }
+  if (msg.includes('connection failed')) {
+    return new Error('Couldn\'t connect. Try restarting your DOTT and refreshing this page.');
+  }
+  
+  // For other errors, make them slightly friendlier
+  return new Error(`Something went wrong: ${error.message}. Try reconnecting or restart your DOTT.`);
+}
 
 /**
  * Validate GIF has full frames (required for DOTT - no delta optimization!)
@@ -132,6 +162,7 @@ class DottBleService {
   private _state: ConnectionState = 'disconnected';
   private notifications: string[] = [];
   private mtu: number = DEFAULT_MTU;
+  private reconnectAttempts: number = 0;
 
   get state(): ConnectionState {
     return this._state;
@@ -146,7 +177,8 @@ class DottBleService {
   }
 
   async getDeviceInfo(): Promise<DeviceInfo> {
-    if (!this.server?.connected) {
+    // Try to ensure we're connected
+    if (!await this.ensureConnected()) {
       return {};
     }
 
@@ -154,7 +186,7 @@ class DottBleService {
 
     // Read battery level
     try {
-      const batteryService = await this.server.getPrimaryService(BATTERY_SERVICE_UUID);
+      const batteryService = await this.server!.getPrimaryService(BATTERY_SERVICE_UUID);
       const batteryChar = await batteryService.getCharacteristic(BATTERY_LEVEL_UUID);
       const batteryValue = await batteryChar.readValue();
       info.batteryLevel = batteryValue.getUint8(0);
@@ -164,7 +196,7 @@ class DottBleService {
 
     // Read device info
     try {
-      const deviceInfoService = await this.server.getPrimaryService(DEVICE_INFO_SERVICE_UUID);
+      const deviceInfoService = await this.server!.getPrimaryService(DEVICE_INFO_SERVICE_UUID);
       
       try {
         const fwChar = await deviceInfoService.getCharacteristic(FIRMWARE_REVISION_UUID);
@@ -206,13 +238,14 @@ class DottBleService {
 
   async connect(): Promise<boolean> {
     if (!navigator.bluetooth) {
-      this.callbacks.onError?.(new Error('Web Bluetooth is not supported in this browser'));
+      this.callbacks.onError?.(new Error('Web Bluetooth is not supported in this browser. Please use Chrome, Edge, or Opera.'));
       return false;
     }
 
     try {
       this.setState('connecting');
       this.log('Scanning...');
+      this.reconnectAttempts = 0;
 
       // Request device with DOTT service
       this.device = await navigator.bluetooth.requestDevice({
@@ -231,6 +264,26 @@ class DottBleService {
       this.device.addEventListener('gattserverdisconnected', () => {
         this.handleDisconnect();
       });
+
+      // Actually connect to GATT
+      return await this.connectGatt();
+    } catch (error) {
+      this.setState('disconnected');
+      this.callbacks.onError?.(friendlyError(error as Error));
+      return false;
+    }
+  }
+
+  /**
+   * Connect/reconnect to GATT server (used for initial connect and auto-reconnect)
+   */
+  private async connectGatt(): Promise<boolean> {
+    if (!this.device) {
+      return false;
+    }
+
+    try {
+      this.log('Connecting to GATT server...');
 
       // Connect to GATT server
       this.server = await this.device.gatt?.connect() ?? null;
@@ -264,13 +317,49 @@ class DottBleService {
       // Small delay like Python (0.2s)
       await new Promise(r => setTimeout(r, 200));
 
+      this.reconnectAttempts = 0;
       this.setState('connected');
       return true;
     } catch (error) {
-      this.setState('disconnected');
-      this.callbacks.onError?.(error as Error);
+      throw error;
+    }
+  }
+
+  /**
+   * Try to reconnect if we have a device reference
+   */
+  async tryReconnect(): Promise<boolean> {
+    if (!this.device || this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
       return false;
     }
+
+    this.reconnectAttempts++;
+    this.log(`Reconnecting (attempt ${this.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
+    this.setState('connecting');
+
+    // Wait a bit before reconnecting
+    await new Promise(r => setTimeout(r, 500));
+
+    try {
+      return await this.connectGatt();
+    } catch (error) {
+      this.log(`Reconnect failed: ${(error as Error).message}`);
+      if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        this.setState('disconnected');
+        this.callbacks.onError?.(friendlyError(error as Error));
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Check if connected, try to reconnect if not
+   */
+  private async ensureConnected(): Promise<boolean> {
+    if (this.server?.connected) {
+      return true;
+    }
+    return await this.tryReconnect();
   }
 
   async disconnect(): Promise<void> {
@@ -304,8 +393,14 @@ class DottBleService {
   }
 
   async uploadImage(data: Uint8Array): Promise<boolean> {
-    if (!this.isConnected || !this.dataChar || !this.triggerChar) {
-      this.callbacks.onError?.(new Error('Not connected to device'));
+    // Check connection, try to reconnect if needed
+    if (!await this.ensureConnected()) {
+      this.callbacks.onError?.(new Error('Not connected. Please connect to your DOTT first.'));
+      return false;
+    }
+
+    if (!this.dataChar || !this.triggerChar) {
+      this.callbacks.onError?.(new Error('Connection incomplete. Please disconnect and reconnect.'));
       return false;
     }
 
@@ -381,20 +476,39 @@ class DottBleService {
       for (let i = 0; i < totalBytes; i += chunkSize) {
         const chunk = data.slice(i, i + chunkSize);
         
-        // Retry logic for GATT errors
+        // Retry logic for GATT errors with auto-reconnect
         let success = false;
         for (let retry = 0; retry < MAX_RETRIES && !success; retry++) {
           try {
-            await this.dataChar.writeValueWithoutResponse(chunk);
+            await this.dataChar!.writeValueWithoutResponse(chunk);
             success = true;
           } catch (e) {
+            const errMsg = (e as Error).message.toLowerCase();
+            const isGattDisconnect = errMsg.includes('gatt') || errMsg.includes('disconnect');
+            
+            if (isGattDisconnect && retry < MAX_RETRIES - 1) {
+              this.log(`Connection lost at ${Math.floor((i / totalBytes) * 100)}%, reconnecting...`);
+              
+              // Try to reconnect
+              const reconnected = await this.tryReconnect();
+              if (reconnected && this.dataChar) {
+                this.log('Reconnected! Resuming upload...');
+                // Re-get the characteristic after reconnect
+                continue;
+              }
+            }
+            
             if (retry < MAX_RETRIES - 1) {
               this.log(`  Retry ${retry + 1}/${MAX_RETRIES} at offset ${i}...`);
-              await new Promise(r => setTimeout(r, 50 * (retry + 1)));  // Backoff
+              await new Promise(r => setTimeout(r, 100 * (retry + 1)));  // Backoff
             } else {
               throw e;  // Give up after max retries
             }
           }
+        }
+        
+        if (!success) {
+          throw new Error('Upload interrupted. Please try again.');
         }
         
         await new Promise(r => setTimeout(r, CHUNK_DELAY_MS));
@@ -442,7 +556,7 @@ class DottBleService {
       }
     } catch (error) {
       this.log(`Error: ${(error as Error).message}`);
-      this.callbacks.onError?.(error as Error);
+      this.callbacks.onError?.(friendlyError(error as Error));
       return false;
     } finally {
       if (this._state === 'uploading') {
