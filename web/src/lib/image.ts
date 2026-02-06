@@ -170,9 +170,6 @@ export async function validateImage(file: File): Promise<ImageInfo> {
   });
 }
 
-// Small GIFs that already work shouldn't be re-encoded (it makes them bigger!)
-const SMALL_FILE_THRESHOLD = 50 * 1024;  // 50KB
-
 export async function processImageForDevice(
   file: File,
   autoConvert: boolean = true,
@@ -183,14 +180,7 @@ export async function processImageForDevice(
   const data = new Uint8Array(buffer);
   const type = detectImageType(data);
   
-  // IMPORTANT: If GIF is already small enough, send it raw!
-  // Our conversion often makes files BIGGER (e.g., 12KB → 36KB)
-  if (type === 'gif' && data.length <= SMALL_FILE_THRESHOLD) {
-    console.log(`Small GIF (${(data.length/1024).toFixed(1)}KB) - sending raw without conversion`);
-    return data;
-  }
-  
-  // Check if conversion is needed for larger files
+  // Check if conversion is needed
   if (type === 'gif' && autoConvert) {
     const { needsConversion, convertAnimatedGif, convertStaticToGif } = await import('./gifConverter');
     const check = needsConversion(data);

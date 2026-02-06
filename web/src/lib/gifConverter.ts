@@ -14,7 +14,7 @@ import GIF from 'gif.js-upgrade';
 
 const TARGET_SIZE = 240;
 const MAX_FRAMES = 12;  // Balance between quality and size
-const MAX_FILE_SIZE = 50 * 1024;  // 50KB - files above this may not loop
+const MAX_FILE_SIZE = 100 * 1024;  // 100KB warning threshold
 const POSTERIZE_LEVELS = 64;  // Mild posterization - preserve quality while investigating
 
 /**
