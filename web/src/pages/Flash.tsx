@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Upload, Zap, AlertTriangle, Loader2, Check, ArrowLeft } from 'lucide-react';
+import { Upload, Zap, AlertTriangle, Loader2, Check, ArrowLeft, RefreshCw } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 // DFU Service UUIDs for Nordic DFU
@@ -11,15 +11,20 @@ const DFU_PACKET_UUID = '8ec90002-f315-4f60-9fb8-838830daea50';
 const SMP_SERVICE_UUID = '8d53dc1d-1db7-4cd3-868b-8a527460aa84';
 const SMP_CHAR_UUID = 'da2e7828-fbce-4e01-ae9e-261174997c48';
 
-type FlashState = 'idle' | 'connecting' | 'connected' | 'flashing' | 'success' | 'error';
+// Embedded firmware URL (bundled in public/)
+const OFFICIAL_FIRMWARE_URL = '/release2.0.bin';
+
+type FlashState = 'idle' | 'loading-firmware' | 'connecting' | 'connected' | 'flashing' | 'success' | 'error';
 
 export function FlashPage() {
   const [state, setState] = useState<FlashState>('idle');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [deviceName, setDeviceName] = useState<string | null>(null);
-  const [firmware, setFirmware] = useState<File | null>(null);
+  const [useCustomFirmware, setUseCustomFirmware] = useState(false);
+  const [customFirmware, setCustomFirmware] = useState<File | null>(null);
   const [log, setLog] = useState<string[]>([]);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const addLog = (msg: string) => {
     setLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
@@ -28,28 +33,44 @@ export function FlashPage() {
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setFirmware(file);
-      addLog(`Selected firmware: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`);
+      setCustomFirmware(file);
+      setUseCustomFirmware(true);
+      addLog(`Selected custom firmware: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`);
     }
   };
 
-  const connectAndFlash = useCallback(async () => {
-    if (!firmware) {
-      setError('Please select a firmware file first');
-      return;
-    }
+  // Load official firmware from server
+  const loadOfficialFirmware = async (): Promise<Uint8Array> => {
+    addLog('Downloading official firmware...');
+    const response = await fetch(OFFICIAL_FIRMWARE_URL);
+    if (!response.ok) throw new Error('Failed to download firmware');
+    const buffer = await response.arrayBuffer();
+    addLog(`Downloaded firmware: ${(buffer.byteLength / 1024).toFixed(1)} KB`);
+    return new Uint8Array(buffer);
+  };
 
+  const connectAndFlash = useCallback(async () => {
     try {
-      setState('connecting');
+      setState('loading-firmware');
       setError(null);
-      addLog('Scanning for DFU devices...');
+      setLog([]);
+      
+      // Get firmware data
+      let firmwareData: Uint8Array;
+      if (useCustomFirmware && customFirmware) {
+        firmwareData = new Uint8Array(await customFirmware.arrayBuffer());
+        addLog(`Using custom firmware: ${customFirmware.name}`);
+      } else {
+        firmwareData = await loadOfficialFirmware();
+      }
+      
+      setState('connecting');
+      addLog('Click your DOTT in the Bluetooth picker...');
 
       // Try to find device with DFU or SMP service
       const device = await navigator.bluetooth.requestDevice({
         filters: [
           { namePrefix: 'Dott' },
-          { services: [DFU_SERVICE_UUID] },
-          { services: [SMP_SERVICE_UUID] },
         ],
         optionalServices: [DFU_SERVICE_UUID, SMP_SERVICE_UUID, DFU_CONTROL_UUID, DFU_PACKET_UUID, SMP_CHAR_UUID],
       });
@@ -76,35 +97,47 @@ export function FlashPage() {
           addLog('Found MCUboot SMP service');
           useSmp = true;
         } catch {
-          throw new Error('No DFU service found. Device may not be in bootloader mode.');
+          throw new Error('No DFU service found. Make sure your DOTT is in bootloader mode (tap two pins on PCB).');
         }
       }
 
-      // Read firmware file
-      const firmwareData = new Uint8Array(await firmware.arrayBuffer());
       addLog(`Firmware size: ${firmwareData.length} bytes`);
 
       setState('flashing');
       addLog('Starting firmware upload...');
 
       if (useSmp) {
-        // MCUboot SMP protocol
         await flashViaSmp(service, firmwareData, setProgress, addLog);
       } else {
-        // Nordic DFU protocol
         await flashViaDfu(service, firmwareData, setProgress, addLog);
       }
 
       setState('success');
       addLog('✓ Firmware upload complete!');
+      addLog('Your DOTT will restart. You can now return to the main page to upload images.');
       
     } catch (err) {
       setState('error');
       const msg = (err as Error).message;
-      setError(msg);
+      // Make error messages friendlier
+      if (msg.includes('User cancelled')) {
+        setError('Connection cancelled. Click "Update" to try again.');
+      } else if (msg.includes('No DFU service')) {
+        setError(msg);
+      } else {
+        setError(`Something went wrong: ${msg}. Try restarting your DOTT and try again.`);
+      }
       addLog(`✗ Error: ${msg}`);
     }
-  }, [firmware]);
+  }, [useCustomFirmware, customFirmware]);
+
+  const reset = () => {
+    setState('idle');
+    setError(null);
+    setProgress(0);
+    setDeviceName(null);
+    setLog([]);
+  };
 
   return (
     <div className="min-h-screen bg-black text-white p-8">
@@ -117,168 +150,220 @@ export function FlashPage() {
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <Zap className="w-6 h-6 text-yellow-500" />
-              Firmware Flash
+              Firmware Update
             </h1>
-            <p className="text-zinc-400 text-sm">Upload firmware directly to your DOTT</p>
+            <p className="text-zinc-400 text-sm">Update your DOTT to the latest firmware</p>
           </div>
         </div>
 
-        {/* Instructions */}
-        <div className="mb-6 p-4 rounded-xl bg-blue-500/20 border border-blue-500/50 text-blue-400">
-          <div className="font-medium mb-2">📋 How to Flash</div>
-          <ol className="text-sm space-y-1 list-decimal list-inside">
-            <li>Put your DOTT in <strong>bootloader mode</strong> (tap the two pins on PCB)</li>
-            <li>Device will advertise as "Dott_V2_Atin"</li>
-            <li>Download the firmware below (or select your own)</li>
-            <li>Click "Flash Firmware"</li>
-          </ol>
-        </div>
-
-        {/* Download firmware */}
-        <div className="mb-6 p-4 rounded-xl bg-zinc-900 border border-zinc-800">
-          <div className="font-medium mb-3">📦 Official Firmware (Recommended)</div>
-          <div className="flex items-center gap-4 mb-4">
-            <a 
-              href="/release2.0.bin" 
-              download="release2.0.bin"
-              className="px-4 py-2 rounded-lg bg-green-500 text-white font-medium hover:bg-green-600 transition-colors"
-            >
-              Download release2.0.bin
-            </a>
-            <span className="text-sm text-zinc-400">~263 KB • Use this for first-time setup</span>
-          </div>
-          
-          <div className="font-medium mb-2 text-zinc-400">🧪 OpenDOTT Firmware (Experimental)</div>
-          <div className="flex items-center gap-4">
-            <a 
-              href="/opendott-firmware.bin" 
-              download="opendott-firmware.bin"
-              className="px-4 py-2 rounded-lg bg-zinc-700 text-white font-medium hover:bg-zinc-600 transition-colors"
-            >
-              Download opendott-firmware.bin
-            </a>
-            <span className="text-sm text-zinc-500">~193 KB • Custom open-source firmware</span>
-          </div>
-        </div>
-
-        {/* Warning */}
-        <div className="mb-6 p-4 rounded-xl bg-yellow-500/20 border border-yellow-500/50 text-yellow-400">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-            <div>
-              <div className="font-medium">⚠️ Warning</div>
-              <div className="text-sm mt-1">
-                Flashing incorrect firmware can brick your device. If signature verification fails,
-                you may need to use SWD (J6 pads) to recover.
-              </div>
+        {/* Success State */}
+        {state === 'success' && (
+          <div className="mb-8 p-6 rounded-xl bg-green-500/20 border border-green-500/50 text-center">
+            <Check className="w-16 h-16 mx-auto mb-4 text-green-400" />
+            <h2 className="text-2xl font-bold text-green-400 mb-2">Update Complete!</h2>
+            <p className="text-green-300 mb-6">
+              Your DOTT is now running the latest firmware. It will restart automatically.
+            </p>
+            <div className="flex gap-4 justify-center">
+              <a
+                href="/"
+                className="px-6 py-3 rounded-lg bg-green-500 text-black font-bold hover:bg-green-400 transition-colors"
+              >
+                Upload Images →
+              </a>
+              <button
+                onClick={reset}
+                className="px-6 py-3 rounded-lg bg-zinc-800 text-white font-medium hover:bg-zinc-700 transition-colors"
+              >
+                Flash Another
+              </button>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* File selection */}
-        <div className="mb-6">
-          <label className="block mb-2 font-medium">Firmware File (.bin)</label>
-          <div className="relative">
-            <input
-              type="file"
-              accept=".bin"
-              onChange={handleFileSelect}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-            />
-            <div className={cn(
-              "p-4 rounded-xl border-2 border-dashed text-center transition-colors",
-              firmware ? "border-green-500 bg-green-500/10" : "border-zinc-700 hover:border-zinc-500"
-            )}>
-              {firmware ? (
-                <div className="text-green-400">
-                  <Check className="w-6 h-6 mx-auto mb-2" />
-                  {firmware.name} ({(firmware.size / 1024).toFixed(1)} KB)
+        {/* Main Flow (not success state) */}
+        {state !== 'success' && (
+          <>
+            {/* Simple Instructions */}
+            <div className="mb-8 p-6 rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-500/30">
+              <h2 className="text-xl font-bold mb-4">How to Update</h2>
+              <div className="space-y-4">
+                <div className="flex items-start gap-4">
+                  <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0 font-bold">1</div>
+                  <div>
+                    <div className="font-medium">Enter Bootloader Mode</div>
+                    <div className="text-sm text-zinc-400">Tap the two pins on the back of your DOTT PCB</div>
+                  </div>
                 </div>
+                <div className="flex items-start gap-4">
+                  <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0 font-bold">2</div>
+                  <div>
+                    <div className="font-medium">Click "Update Now" below</div>
+                    <div className="text-sm text-zinc-400">Select your DOTT from the Bluetooth picker</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-4">
+                  <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0 font-bold">3</div>
+                  <div>
+                    <div className="font-medium">Wait for the update to complete</div>
+                    <div className="text-sm text-zinc-400">Your DOTT will restart automatically</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Device status */}
+            {deviceName && (
+              <div className="mb-6 p-4 rounded-xl bg-zinc-900 border border-zinc-800">
+                <div className="text-sm text-zinc-400">Connected to</div>
+                <div className="font-medium">{deviceName}</div>
+              </div>
+            )}
+
+            {/* Progress */}
+            {(state === 'flashing' || state === 'loading-firmware' || state === 'connecting') && (
+              <div className="mb-6 p-4 rounded-xl bg-zinc-900 border border-zinc-800">
+                <div className="flex justify-between text-sm mb-2">
+                  <span>
+                    {state === 'loading-firmware' && 'Preparing firmware...'}
+                    {state === 'connecting' && 'Waiting for device...'}
+                    {state === 'flashing' && 'Uploading firmware...'}
+                  </span>
+                  {state === 'flashing' && <span>{Math.round(progress)}%</span>}
+                </div>
+                <div className="h-3 bg-zinc-800 rounded-full overflow-hidden">
+                  <div 
+                    className={cn(
+                      "h-full transition-all duration-300",
+                      state === 'flashing' ? "bg-blue-500" : "bg-blue-500/50 animate-pulse"
+                    )}
+                    style={{ width: state === 'flashing' ? `${progress}%` : '100%' }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Error */}
+            {error && (
+              <div className="mb-6 p-4 rounded-xl bg-red-500/20 border border-red-500/50 text-red-400">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-medium">Update Failed</div>
+                    <div className="text-sm mt-1">{error}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Main Update Button */}
+            <button
+              onClick={connectAndFlash}
+              disabled={state === 'connecting' || state === 'flashing' || state === 'loading-firmware'}
+              className={cn(
+                "w-full py-4 rounded-xl font-bold text-lg transition-colors flex items-center justify-center gap-2",
+                "bg-gradient-to-r from-yellow-500 to-orange-500 text-black hover:from-yellow-400 hover:to-orange-400",
+                (state === 'connecting' || state === 'flashing' || state === 'loading-firmware') && "opacity-70 cursor-not-allowed"
+              )}
+            >
+              {state === 'loading-firmware' ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Preparing...
+                </>
+              ) : state === 'connecting' ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Connecting...
+                </>
+              ) : state === 'flashing' ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Updating ({Math.round(progress)}%)...
+                </>
+              ) : state === 'error' ? (
+                <>
+                  <RefreshCw className="w-5 h-5" />
+                  Try Again
+                </>
               ) : (
-                <div className="text-zinc-400">
-                  <Upload className="w-6 h-6 mx-auto mb-2" />
-                  Click or drag to select firmware
+                <>
+                  <Zap className="w-5 h-5" />
+                  Update Now
+                </>
+              )}
+            </button>
+
+            {/* Advanced Options */}
+            <div className="mt-8">
+              <button
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                {showAdvanced ? '▼' : '▶'} Advanced Options
+              </button>
+              
+              {showAdvanced && (
+                <div className="mt-4 p-4 rounded-xl bg-zinc-900 border border-zinc-800">
+                  <div className="mb-4">
+                    <label className="block mb-2 text-sm font-medium text-zinc-400">Custom Firmware (.bin)</label>
+                    <div className="relative">
+                      <input
+                        type="file"
+                        accept=".bin"
+                        onChange={handleFileSelect}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                      <div className={cn(
+                        "p-3 rounded-lg border-2 border-dashed text-center text-sm transition-colors",
+                        customFirmware ? "border-green-500 bg-green-500/10" : "border-zinc-700 hover:border-zinc-500"
+                      )}>
+                        {customFirmware ? (
+                          <div className="text-green-400">
+                            {customFirmware.name} ({(customFirmware.size / 1024).toFixed(1)} KB)
+                          </div>
+                        ) : (
+                          <div className="text-zinc-500">
+                            <Upload className="w-4 h-4 inline mr-2" />
+                            Select custom firmware
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {customFirmware && (
+                      <button
+                        onClick={() => { setCustomFirmware(null); setUseCustomFirmware(false); }}
+                        className="mt-2 text-xs text-zinc-500 hover:text-zinc-300"
+                      >
+                        ✕ Use official firmware instead
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Warning */}
+                  <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-sm">
+                    <AlertTriangle className="w-4 h-4 inline mr-2" />
+                    Custom firmware can brick your device if it's not compatible.
+                  </div>
                 </div>
               )}
             </div>
-          </div>
-        </div>
-
-        {/* Device status */}
-        {deviceName && (
-          <div className="mb-6 p-4 rounded-xl bg-zinc-900 border border-zinc-800">
-            <div className="text-sm text-zinc-400">Connected to</div>
-            <div className="font-medium">{deviceName}</div>
-          </div>
+          </>
         )}
 
-        {/* Progress */}
-        {state === 'flashing' && (
-          <div className="mb-6">
-            <div className="flex justify-between text-sm mb-2">
-              <span>Uploading...</span>
-              <span>{Math.round(progress)}%</span>
-            </div>
-            <div className="h-3 bg-zinc-800 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-blue-500 transition-all duration-300"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Flash button */}
-        <button
-          onClick={connectAndFlash}
-          disabled={!firmware || state === 'connecting' || state === 'flashing'}
-          className={cn(
-            "w-full py-4 rounded-xl font-bold text-lg transition-colors flex items-center justify-center gap-2",
-            state === 'success' 
-              ? "bg-green-500 text-white"
-              : "bg-blue-500 hover:bg-blue-600 text-white",
-            (!firmware || state === 'connecting' || state === 'flashing') && "opacity-50 cursor-not-allowed"
-          )}
-        >
-          {state === 'connecting' ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              Connecting...
-            </>
-          ) : state === 'flashing' ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              Flashing...
-            </>
-          ) : state === 'success' ? (
-            <>
-              <Check className="w-5 h-5" />
-              Flash Complete!
-            </>
-          ) : (
-            <>
-              <Zap className="w-5 h-5" />
-              Connect & Flash
-            </>
-          )}
-        </button>
-
-        {/* Error */}
-        {error && (
-          <div className="mt-4 p-4 rounded-xl bg-red-500/20 border border-red-500/50 text-red-400">
-            {error}
-          </div>
-        )}
-
-        {/* Log */}
+        {/* Log (collapsible) */}
         {log.length > 0 && (
           <div className="mt-6">
-            <div className="text-sm font-medium text-zinc-400 mb-2">Log</div>
-            <div className="bg-zinc-900 rounded-xl p-4 font-mono text-xs max-h-48 overflow-y-auto">
-              {log.map((line, i) => (
-                <div key={i} className="text-zinc-300">{line}</div>
-              ))}
-            </div>
+            <details className="group">
+              <summary className="text-sm font-medium text-zinc-500 cursor-pointer hover:text-zinc-300">
+                Show log ({log.length} entries)
+              </summary>
+              <div className="mt-2 bg-zinc-900 rounded-xl p-4 font-mono text-xs max-h-48 overflow-y-auto border border-zinc-800">
+                {log.map((line, i) => (
+                  <div key={i} className="text-zinc-400">{line}</div>
+                ))}
+              </div>
+            </details>
           </div>
         )}
       </div>
