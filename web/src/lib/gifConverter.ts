@@ -15,13 +15,23 @@ import GIF from 'gif.js-upgrade';
 const TARGET_SIZE = 240;
 const MAX_FRAMES = 30;  // Limit frame count to keep file size reasonable
 
+// Debug: set to true to skip NETSCAPE injection (for testing if it causes issues)
+const SKIP_NETSCAPE = false;
+
 /**
  * Inject NETSCAPE extension for looping if missing.
  * Must be inserted right after the global color table, before the first frame.
  */
 function ensureNetscapeLoop(data: Uint8Array): Uint8Array<ArrayBuffer> {
-  // Check if NETSCAPE already exists
-  const str = String.fromCharCode.apply(null, Array.from(data.slice(0, 500)));
+  // Debug skip
+  if (SKIP_NETSCAPE) {
+    console.log('NETSCAPE injection SKIPPED (debug mode)');
+    return new Uint8Array(data) as Uint8Array<ArrayBuffer>;
+  }
+  
+  // Check if NETSCAPE already exists (search more of the file)
+  const searchLen = Math.min(data.length, 2000);
+  const str = String.fromCharCode.apply(null, Array.from(data.slice(0, searchLen)));
   if (str.includes('NETSCAPE')) {
     console.log('NETSCAPE already present');
     return new Uint8Array(data) as Uint8Array<ArrayBuffer>;
@@ -240,8 +250,9 @@ export async function convertAnimatedGif(
         // Ensure NETSCAPE loop extension is present (gif.js bug workaround)
         data = ensureNetscapeLoop(data);
         
-        // Verify NETSCAPE extension
-        const str = String.fromCharCode.apply(null, Array.from(data.slice(0, 500)));
+        // Verify NETSCAPE extension (search more of the file since GCT can be large)
+        const searchLen = Math.min(data.length, 2000);
+        const str = String.fromCharCode.apply(null, Array.from(data.slice(0, searchLen)));
         const netIdx = str.indexOf('NETSCAPE');
         if (netIdx >= 0) {
           console.log(`✓ NETSCAPE found at ${netIdx}, loop count: ${data[netIdx+16] | (data[netIdx+17] << 8)} (0=infinite)`);
