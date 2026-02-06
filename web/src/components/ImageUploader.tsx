@@ -148,7 +148,7 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
                   </span>
                   {imageInfo.isAnimated && (
                     <span className="px-2 py-0.5 rounded text-xs font-medium bg-green-500/20 text-green-400">
-                      Animated
+                      Animated ({imageInfo.frameCount} frames)
                     </span>
                   )}
                 </div>
@@ -185,6 +185,13 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
               </button>
             </div>
           </div>
+          
+          {/* Frame warning for optimized GIFs */}
+          {imageInfo.frameWarning && (
+            <div className="mt-4 p-3 rounded-lg bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 text-sm">
+              {imageInfo.frameWarning}
+            </div>
+          )}
           
           {/* Progress bar */}
           {isUploading && (

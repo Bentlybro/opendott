@@ -9,6 +9,8 @@ export interface ImageInfo {
   type: 'gif' | 'png' | 'jpeg' | 'unknown';
   isAnimated: boolean;
   dataUrl: string;
+  frameWarning?: string;  // Warning about partial frames
+  frameCount?: number;
 }
 
 // Magic bytes for image detection
@@ -47,6 +49,67 @@ function isAnimatedGif(data: Uint8Array): boolean {
   return false;
 }
 
+/**
+ * Check if GIF has full frames (required for DOTT animation!)
+ * Returns { valid, warning, frameCount }
+ */
+function validateGifFrames(data: Uint8Array): { valid: boolean; warning?: string; frameCount: number } {
+  const width = data[6] | (data[7] << 8);
+  const height = data[8] | (data[9] << 8);
+  
+  let pos = 13;
+  if (data[10] & 0x80) {  // Global color table
+    const gctSize = 3 * (2 ** ((data[10] & 0x07) + 1));
+    pos += gctSize;
+  }
+  
+  const frames: Array<{ w: number; h: number }> = [];
+  
+  while (pos < data.length - 1) {
+    if (data[pos] === 0x21) {  // Extension
+      if (data[pos + 1] === 0xF9) {  // GCE
+        pos += 8;
+      } else {
+        pos += 2;
+        while (pos < data.length && data[pos] !== 0) {
+          pos += data[pos] + 1;
+        }
+        pos += 1;
+      }
+    } else if (data[pos] === 0x2C) {  // Image descriptor
+      const fw = data[pos + 5] | (data[pos + 6] << 8);
+      const fh = data[pos + 7] | (data[pos + 8] << 8);
+      frames.push({ w: fw, h: fh });
+      
+      pos += 10;
+      if (data[pos - 1] & 0x80) {  // Local color table
+        pos += 3 * (2 ** ((data[pos - 1] & 0x07) + 1));
+      }
+      pos += 1;  // LZW min code size
+      while (pos < data.length && data[pos] !== 0) {
+        pos += data[pos] + 1;
+      }
+      pos += 1;
+    } else if (data[pos] === 0x3B) {  // Trailer
+      break;
+    } else {
+      pos += 1;
+    }
+  }
+  
+  const partialFrames = frames.filter(f => f.w !== width || f.h !== height);
+  
+  if (partialFrames.length > 0 && frames.length > 1) {
+    return {
+      valid: false,
+      warning: `⚠️ This GIF has ${partialFrames.length} optimized/partial frame(s). DOTT requires full ${width}×${height} frames for animation to work. The image will display but may not animate. Use "gifsicle --unoptimize" to fix.`,
+      frameCount: frames.length
+    };
+  }
+  
+  return { valid: true, frameCount: frames.length };
+}
+
 export async function validateImage(file: File): Promise<ImageInfo> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -63,6 +126,17 @@ export async function validateImage(file: File): Promise<ImageInfo> {
       
       const isAnimated = type === 'gif' && isAnimatedGif(data);
       
+      // Check for partial frames (GIF only)
+      let frameWarning: string | undefined;
+      let frameCount = 1;
+      if (type === 'gif' && isAnimated) {
+        const frameValidation = validateGifFrames(data);
+        if (!frameValidation.valid) {
+          frameWarning = frameValidation.warning;
+        }
+        frameCount = frameValidation.frameCount;
+      }
+      
       // Get dimensions using Image element
       const img = new Image();
       const dataUrl = URL.createObjectURL(file);
@@ -75,6 +149,8 @@ export async function validateImage(file: File): Promise<ImageInfo> {
           type,
           isAnimated,
           dataUrl,
+          frameWarning,
+          frameCount,
         });
       };
       

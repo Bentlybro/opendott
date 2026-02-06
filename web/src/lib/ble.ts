@@ -19,8 +19,81 @@ const UUID_1529 = '00001529-0000-1000-8000-00805f9b34fb';  // Alt data
 const UUID_1530 = '00001530-0000-1000-8000-00805f9b34fb';  // Response
 
 // Transfer settings (same as Python)
-const DEFAULT_MTU = 23;
+const DEFAULT_MTU = 517;  // Web Bluetooth typically negotiates higher MTU
 const CHUNK_DELAY_MS = 5;
+
+/**
+ * Validate GIF has full frames (required for DOTT - no delta optimization!)
+ */
+export function validateGifFrames(data: Uint8Array): { valid: boolean; message: string; frames: number } {
+  if (data.length < 13) {
+    return { valid: false, message: 'File too small', frames: 0 };
+  }
+  
+  const header = String.fromCharCode(...data.slice(0, 6));
+  if (header !== 'GIF87a' && header !== 'GIF89a') {
+    return { valid: false, message: 'Not a valid GIF file', frames: 0 };
+  }
+  
+  const width = data[6] | (data[7] << 8);
+  const height = data[8] | (data[9] << 8);
+  
+  let pos = 13;
+  if (data[10] & 0x80) {  // Global color table
+    const gctSize = 3 * (2 ** ((data[10] & 0x07) + 1));
+    pos += gctSize;
+  }
+  
+  const frames: Array<{ w: number; h: number }> = [];
+  
+  while (pos < data.length - 1) {
+    if (data[pos] === 0x21) {  // Extension
+      if (data[pos + 1] === 0xF9) {  // GCE
+        pos += 8;
+      } else {
+        pos += 2;
+        while (pos < data.length && data[pos] !== 0) {
+          pos += data[pos] + 1;
+        }
+        pos += 1;
+      }
+    } else if (data[pos] === 0x2C) {  // Image descriptor
+      const fw = data[pos + 5] | (data[pos + 6] << 8);
+      const fh = data[pos + 7] | (data[pos + 8] << 8);
+      frames.push({ w: fw, h: fh });
+      
+      pos += 10;
+      if (data[pos - 1] & 0x80) {  // Local color table
+        pos += 3 * (2 ** ((data[pos - 1] & 0x07) + 1));
+      }
+      pos += 1;  // LZW min code size
+      while (pos < data.length && data[pos] !== 0) {
+        pos += data[pos] + 1;
+      }
+      pos += 1;
+    } else if (data[pos] === 0x3B) {  // Trailer
+      break;
+    } else {
+      pos += 1;
+    }
+  }
+  
+  const partialFrames = frames.filter(f => f.w !== width || f.h !== height);
+  
+  if (partialFrames.length > 0) {
+    return {
+      valid: false,
+      message: `GIF has ${partialFrames.length} partial frame(s). DOTT requires full ${width}x${height} frames for animation. Use "gifsicle --unoptimize" to fix.`,
+      frames: frames.length
+    };
+  }
+  
+  return {
+    valid: true,
+    message: `Valid: ${frames.length} full ${width}x${height} frames`,
+    frames: frames.length
+  };
+}
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'uploading';
 
@@ -193,6 +266,19 @@ class DottBleService {
         const width = data[6] | (data[7] << 8);
         const height = data[8] | (data[9] << 8);
         this.log(`GIF detected: ${width}x${height}`);
+      }
+
+      // Step 0: Pre-transfer commands (from btsnoop analysis)
+      try {
+        const responseChar = await this.service!.getCharacteristic(UUID_1530);
+        await responseChar.writeValueWithoutResponse(new Uint8Array([0xfc]));
+        this.log('Step 0: Wrote 0xfc to 0x1530');
+        await new Promise(r => setTimeout(r, 50));
+        await responseChar.writeValueWithoutResponse(new Uint8Array([0x10]));
+        this.log('        Wrote 0x10 to 0x1530');
+        await new Promise(r => setTimeout(r, 100));
+      } catch (e) {
+        this.log(`Pre-transfer commands skipped: ${(e as Error).message}`);
       }
 
       // Step 1: TRIGGER - Write FILE SIZE (4 bytes LE) to 0x1528 with response
