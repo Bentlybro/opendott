@@ -2,10 +2,11 @@
  * OpenDOTT Web Bluetooth Service
  * Handles connection and image upload to DOTT wearable display
  * 
- * Protocol (matched to OFFICIAL Android app - NOT the Python tool):
- * - Just stream RAW GIF bytes to 0x1525 - nothing else!
- * - No size header, no trigger characteristic
- * - The firmware detects completion by parsing the GIF and finding the 0x3B trailer
+ * Protocol (matched EXACTLY to working Python tool):
+ * 1. Send FILE SIZE (4 bytes LE) to trigger char (0x1528) with response
+ * 2. Wait for indication
+ * 3. Send image data chunks to data char (0x1525) without response
+ * 4. Wait for "Transfer Complete" notification
  */
 
 // DOTT BLE Service and Characteristic UUIDs
@@ -19,16 +20,17 @@ const FIRMWARE_REVISION_UUID = '00002a26-0000-1000-8000-00805f9b34fb';
 const MODEL_NUMBER_UUID = '00002a24-0000-1000-8000-00805f9b34fb';
 const MANUFACTURER_UUID = '00002a29-0000-1000-8000-00805f9b34fb';
 
-// Characteristic UUIDs (matched to official Android app)
-const UUID_1525 = '00001525-0000-1000-8000-00805f9b34fb';  // Data transfer (ONLY char used!)
-const UUID_1529 = '00001529-0000-1000-8000-00805f9b34fb';  // Notifications ("Transfer Complete")
-// Note: 0x1528 (trigger) and 0x1530 (response) NOT used by official app
+// Characteristic UUIDs (exact same as Python tool)
+const UUID_1525 = '00001525-0000-1000-8000-00805f9b34fb';  // Data
+const UUID_1528 = '00001528-0000-1000-8000-00805f9b34fb';  // Trigger
+const UUID_1529 = '00001529-0000-1000-8000-00805f9b34fb';  // Alt data
+const UUID_1530 = '00001530-0000-1000-8000-00805f9b34fb';  // Response
 
-// Transfer settings (matched to official Android app)
-const DEFAULT_MTU = 498;     // Official app requests 498 (OPTIMAL_MTU_SIZE)
-const MAX_CHUNK_SIZE = 495;  // MTU - 3 (official app behavior)
-const CHUNK_DELAY_MS = 5;    // 5ms between chunks (official app: CHUNK_DELAY_MS = 5)
-const MAX_RETRIES = 5;       // Official app: MAX_RETRIES = 5
+// Transfer settings
+const DEFAULT_MTU = 517;     // Web Bluetooth typically negotiates this
+const MAX_CHUNK_SIZE = 244;  // Safer chunk size (like Python with MTU 247)
+const CHUNK_DELAY_MS = 10;   // Slightly slower for reliability
+const MAX_RETRIES = 3;
 const MAX_RECONNECT_ATTEMPTS = 2;
 
 /**
@@ -155,7 +157,7 @@ class DottBleService {
   private server: BluetoothRemoteGATTServer | null = null;
   private service: BluetoothRemoteGATTService | null = null;
   private dataChar: BluetoothRemoteGATTCharacteristic | null = null;
-  // Note: triggerChar (0x1528) removed - official app doesn't use it!
+  private triggerChar: BluetoothRemoteGATTCharacteristic | null = null;
   private callbacks: BleCallbacks = {};
   private _state: ConnectionState = 'disconnected';
   private notifications: string[] = [];
@@ -305,14 +307,12 @@ class DottBleService {
         throw e;
       }
 
-      // Get data characteristic (0x1525 - ONLY one needed per official app!)
+      // Get characteristics (same as Python: UUID_1525 for data, UUID_1528 for trigger)
       this.dataChar = await this.service.getCharacteristic(UUID_1525);
-      
-      // Note: Official app ONLY uses 0x1525 for data transfer
-      // It doesn't use 0x1528 (trigger) or 0x1530 (response) at all!
+      this.triggerChar = await this.service.getCharacteristic(UUID_1528);
 
-      // Enable notifications if available (for "Transfer Complete" detection)
-      const notifyUuids = [UUID_1529];  // Official app doesn't subscribe to 1528/1530
+      // Enable notifications on multiple UUIDs (same as Python)
+      const notifyUuids = [UUID_1528, UUID_1529, UUID_1530];
       for (const uuid of notifyUuids) {
         try {
           const char = await this.service.getCharacteristic(uuid);
@@ -384,6 +384,7 @@ class DottBleService {
     this.server = null;
     this.service = null;
     this.dataChar = null;
+    this.triggerChar = null;
     this.setState('disconnected');
   }
 
@@ -407,7 +408,7 @@ class DottBleService {
       return false;
     }
 
-    if (!this.dataChar) {
+    if (!this.dataChar || !this.triggerChar) {
       this.callbacks.onError?.(new Error('Connection incomplete. Please disconnect and reconnect.'));
       return false;
     }
@@ -416,11 +417,10 @@ class DottBleService {
       this.setState('uploading');
       this.notifications = [];
       const totalBytes = data.length;
-      // Use smaller of MTU-3 or max chunk size (official app: currentMtuSize - 3)
-      const chunkSize = Math.min(this.mtu - 3, MAX_CHUNK_SIZE);
+      const chunkSize = Math.min(this.mtu - 3, MAX_CHUNK_SIZE);  // Web BT max is 512
       
       this.log('============================================================');
-      this.log(`OFFICIAL PROTOCOL: Streaming ${totalBytes} bytes to 0x1525`);
+      this.log(`Uploading ${totalBytes} bytes`);
       this.log('============================================================');
       
       // Debug: log first few bytes to verify GIF header
@@ -434,11 +434,51 @@ class DottBleService {
         this.log(`GIF detected: ${width}x${height}`);
       }
 
-      // OFFICIAL PROTOCOL: Just stream raw bytes to 0x1525, nothing else!
-      // No size header, no trigger characteristic, no pre-commands
-      // The firmware detects completion by parsing the GIF and finding the 0x3B trailer
+      // Step 0: Pre-transfer commands (from btsnoop analysis)
+      try {
+        const responseChar = await this.service!.getCharacteristic(UUID_1530);
+        await responseChar.writeValueWithoutResponse(new Uint8Array([0xfc]));
+        this.log('Step 0: Wrote 0xfc to 0x1530');
+        await new Promise(r => setTimeout(r, 50));
+        await responseChar.writeValueWithoutResponse(new Uint8Array([0x10]));
+        this.log('        Wrote 0x10 to 0x1530');
+        await new Promise(r => setTimeout(r, 100));
+      } catch (e) {
+        this.log(`Pre-transfer commands skipped: ${(e as Error).message}`);
+      }
+
+      // Step 1: TRIGGER - Write FILE SIZE (4 bytes LE) to 0x1528 with response
+      // This is EXACTLY what Python does: struct.pack('<I', len(gif_data))
+      const sizeTrigger = new Uint8Array(4);
+      const view = new DataView(sizeTrigger.buffer);
+      view.setUint32(0, totalBytes, true);  // little-endian
       
-      this.log(`Streaming ${chunkSize}b chunks with ${CHUNK_DELAY_MS}ms delay...`);
+      this.log(`Step 1: Trigger with file size (${Array.from(sizeTrigger).map(b => b.toString(16).padStart(2, '0')).join('')})`);
+      
+      try {
+        await this.triggerChar.writeValueWithResponse(sizeTrigger);
+        this.log('  OK');
+      } catch (e) {
+        this.log(`  Error: ${(e as Error).message}`);
+        return false;
+      }
+
+      // Wait for indication (up to 1 second, same as Python)
+      this.log('  Waiting for indication...');
+      for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 100));
+        if (this.notifications.length > 0) {
+          this.log(`  Got indication: ${JSON.stringify(this.notifications)}`);
+          break;
+        }
+      }
+      if (this.notifications.length === 0) {
+        this.log('  No indication received (continuing anyway)');
+      }
+
+      // Step 2: DATA - Send raw bytes to 0x1525 without response
+      this.log('');
+      this.log(`Step 2: Sending GIF data (${chunkSize}b chunks)...`);
       const startTime = Date.now();
       
       let lastLogPct = 0;
