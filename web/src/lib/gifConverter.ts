@@ -118,6 +118,7 @@ export async function convertAnimatedGif(
     height: TARGET_SIZE,
     workerScript: '/gif.worker.js',
     dither: false,  // Disable dithering for cleaner output
+    repeat: 0,  // 0 = infinite loop, -1 = no repeat, N = repeat N times
   });
   
   // Create canvas for compositing
@@ -237,6 +238,7 @@ export async function convertStaticToGif(file: File): Promise<Uint8Array> {
         width: TARGET_SIZE,
         height: TARGET_SIZE,
         workerScript: '/gif.worker.js',
+        repeat: 0,  // 0 = infinite loop
       });
       
       encoder.addFrame(ctx, { delay: 1000, copy: true });
