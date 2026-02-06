@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Upload, Zap, AlertTriangle, Loader2, Check, ArrowLeft, RefreshCw } from 'lucide-react';
+import { Upload, AlertTriangle, Loader2, Check, ArrowLeft, RefreshCw, Download } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 // DFU Service UUIDs for Nordic DFU
@@ -149,7 +149,7 @@ export function FlashPage() {
           </a>
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Zap className="w-6 h-6 text-yellow-500" />
+              <Download className="w-6 h-6 text-blue-500" />
               Firmware Update
             </h1>
             <p className="text-zinc-400 text-sm">Update your DOTT to the latest firmware</p>
@@ -191,22 +191,22 @@ export function FlashPage() {
                 <div className="flex items-start gap-4">
                   <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0 font-bold">1</div>
                   <div>
-                    <div className="font-medium">Enter Bootloader Mode</div>
-                    <div className="text-sm text-zinc-400">Tap the two pins on the back of your DOTT PCB</div>
+                    <div className="font-medium">Click "Update Now"</div>
+                    <div className="text-sm text-zinc-400">Select your DOTT from the Bluetooth picker</div>
                   </div>
                 </div>
                 <div className="flex items-start gap-4">
                   <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0 font-bold">2</div>
                   <div>
-                    <div className="font-medium">Click "Update Now" below</div>
-                    <div className="text-sm text-zinc-400">Select your DOTT from the Bluetooth picker</div>
+                    <div className="font-medium">Wait for the update</div>
+                    <div className="text-sm text-zinc-400">The firmware will be uploaded automatically</div>
                   </div>
                 </div>
                 <div className="flex items-start gap-4">
                   <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0 font-bold">3</div>
                   <div>
-                    <div className="font-medium">Wait for the update to complete</div>
-                    <div className="text-sm text-zinc-400">Your DOTT will restart automatically</div>
+                    <div className="font-medium">Done</div>
+                    <div className="text-sm text-zinc-400">Your DOTT will restart with the new firmware</div>
                   </div>
                 </div>
               </div>
@@ -288,7 +288,7 @@ export function FlashPage() {
                 </>
               ) : (
                 <>
-                  <Zap className="w-5 h-5" />
+                  <Download className="w-5 h-5" />
                   Update Now
                 </>
               )}
