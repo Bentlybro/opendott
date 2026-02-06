@@ -20,12 +20,15 @@ env:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: workspace
     
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          path: opendott
+          path: workspace/opendott
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -40,6 +43,7 @@ jobs:
             device-tree-compiler wget xz-utils file \
             make gcc gcc-multilib g++-multilib
           pip install west pyelftools
+        working-directory: .
 
       - name: Install Zephyr SDK
         run: |
@@ -48,6 +52,7 @@ jobs:
           tar xf zephyr-sdk-${ZEPHYR_SDK_VERSION}_linux-x86_64_minimal.tar.xz
           cd zephyr-sdk-${ZEPHYR_SDK_VERSION}
           ./setup.sh -t arm-zephyr-eabi -h -c
+        working-directory: .
 
       - name: Initialize Zephyr workspace
         run: |
@@ -60,7 +65,7 @@ jobs:
 
       - name: Build firmware
         run: |
-          west build -b opendott opendott/firmware -- -DBOARD_ROOT=${{ github.workspace }}/opendott/firmware -DDTS_ROOT=${{ github.workspace }}/opendott/firmware
+          west build -b opendott opendott/firmware -- -DBOARD_ROOT=${{ github.workspace }}/workspace/opendott/firmware -DDTS_ROOT=${{ github.workspace }}/workspace/opendott/firmware
 
       - name: Create MCUboot DFU image
         run: |
@@ -68,15 +73,16 @@ jobs:
           cd build/zephyr
           # Create unsigned MCUboot image (header-size 0x200, slot-size matches DTS)
           imgtool create --version 1.0.0 --header-size 0x200 --slot-size 0x72000 --align 4 zephyr.bin zephyr_dfu.bin
-          
+        working-directory: .
+
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:
           name: opendott-firmware
           path: |
-            build/zephyr/zephyr.bin
-            build/zephyr/zephyr.hex
-            build/zephyr/zephyr.elf
-            build/zephyr/zephyr.map
-            build/zephyr/zephyr_dfu.bin
+            workspace/build/zephyr/zephyr.bin
+            workspace/build/zephyr/zephyr.hex
+            workspace/build/zephyr/zephyr.elf
+            workspace/build/zephyr/zephyr.map
+            workspace/build/zephyr/zephyr_dfu.bin
           if-no-files-found: error
