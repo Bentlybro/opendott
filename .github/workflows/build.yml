@@ -54,7 +54,14 @@ jobs:
 
       - name: Build firmware
         run: |
-          west build -b opendott opendott -- -DBOARD_ROOT=${{ github.workspace }}/opendott
+          west build -b opendott opendott -- -DBOARD_ROOT=${{ github.workspace }}/opendott -DDTS_ROOT=${{ github.workspace }}/opendott
+
+      - name: Create MCUboot DFU image
+        run: |
+          pip install imgtool
+          cd build/zephyr
+          # Create unsigned MCUboot image (header-size 0x200, slot-size matches DTS)
+          imgtool create --version 1.0.0 --header-size 0x200 --slot-size 0x72000 --align 4 zephyr.bin zephyr_dfu.bin
           
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
@@ -65,4 +72,5 @@ jobs:
             build/zephyr/zephyr.hex
             build/zephyr/zephyr.elf
             build/zephyr/zephyr.map
+            build/zephyr/zephyr_dfu.bin
           if-no-files-found: error
