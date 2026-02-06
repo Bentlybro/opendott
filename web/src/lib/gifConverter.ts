@@ -223,9 +223,11 @@ export async function convertAnimatedGif(
     ctx.drawImage(fullCanvas, x, y, scaledW, scaledH);
     
     // Add frame to encoder
+    // dispose: 1 = "do not dispose" (keep previous frame) - matches Giphy GIF behavior
     encoder.addFrame(ctx, {
       delay: adjustedDelay,
-      copy: true
+      copy: true,
+      dispose: 1
     });
     
     // Handle disposal
