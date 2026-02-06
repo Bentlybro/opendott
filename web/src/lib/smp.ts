@@ -179,9 +179,26 @@ function parseSMPResponse(data: Uint8Array): { op: number; group: number; cmd: n
   const seq = data[6];
   const cmd = data[7];
   const payloadBytes = data.slice(8);
-  const payload = payloadBytes.length > 0 ? decodeCBOR(payloadBytes) : {};
+  
+  let payload: Record<string, unknown> = {};
+  if (payloadBytes.length > 0) {
+    try {
+      payload = decodeCBOR(payloadBytes);
+    } catch (e) {
+      console.error('[SMP] CBOR decode error:', e);
+      console.log('[SMP] Raw payload hex:', Array.from(payloadBytes).map(b => b.toString(16).padStart(2, '0')).join(' '));
+    }
+  }
   
   return { op, group, cmd, seq, payload };
+}
+
+// Compute SHA256 hash of data (for image verification)
+async function sha256(data: Uint8Array): Promise<Uint8Array> {
+  // Need to convert to ArrayBuffer for crypto.subtle.digest
+  const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+  return new Uint8Array(hashBuffer);
 }
 
 export interface SMPCallbacks {
@@ -261,6 +278,11 @@ export class SMPClient {
     const parsed = parseSMPResponse(response);
     this.log(`Image list response: rc=${parsed.payload['rc'] ?? 'none'}`);
     
+    // Debug: log the full payload structure
+    console.log('[SMP] Image list payload:', JSON.stringify(parsed.payload, (_, v) => 
+      v instanceof Uint8Array ? `<${v.length} bytes>` : v
+    ));
+    
     if (parsed.payload['rc'] !== undefined && parsed.payload['rc'] !== 0) {
       this.log(`Error: rc=${parsed.payload['rc']}`);
       return null;
@@ -268,9 +290,11 @@ export class SMPClient {
     
     const images = parsed.payload['images'] as Array<Record<string, unknown>> | undefined;
     if (!images) {
-      this.log('No images in response');
+      this.log('No images in response payload');
       return null;
     }
+    
+    this.log(`Found ${images.length} image(s) in response`);
     
     return images.map(img => ({
       slot: img['slot'] as number,
@@ -282,7 +306,7 @@ export class SMPClient {
     }));
   }
 
-  async uploadImage(firmware: Uint8Array, onProgress?: (percent: number) => void): Promise<boolean> {
+  async uploadImage(firmware: Uint8Array, onProgress?: (percent: number) => void): Promise<{ success: boolean; hash: Uint8Array | null }> {
     this.log(`Starting firmware upload (${firmware.length} bytes)...`);
     
     const CHUNK_SIZE = 128;  // Bytes per packet (conservative for BLE)
@@ -303,13 +327,13 @@ export class SMPClient {
       
       if (!response) {
         this.log(`Upload failed at offset ${offset}: no response`);
-        return false;
+        return { success: false, hash: null };
       }
       
       const parsed = parseSMPResponse(response);
       if (parsed.payload['rc'] !== undefined && parsed.payload['rc'] !== 0) {
         this.log(`Upload failed at offset ${offset}: rc=${parsed.payload['rc']}`);
-        return false;
+        return { success: false, hash: null };
       }
       
       offset += chunk.length;
@@ -322,13 +346,19 @@ export class SMPClient {
     }
     
     this.log('Firmware upload complete');
-    return true;
+    
+    // Compute SHA256 hash of firmware for testImage
+    const hash = await sha256(firmware);
+    this.log(`Firmware hash: ${Array.from(hash.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join('')}...`);
+    
+    return { success: true, hash };
   }
 
   async testImage(hash: Uint8Array): Promise<boolean> {
     this.log('Marking new image for test boot...');
+    this.log(`Hash: ${Array.from(hash.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join('')}...`);
     
-    const payload = encodeCBOR({ 'hash': hash });
+    const payload = encodeCBOR({ 'hash': hash, 'confirm': false });
     const packet = buildSMPPacket(OP_WRITE, GROUP_IMAGE, CMD_IMAGE_TEST, payload, this.seq++);
     const response = await this.sendAndWait(packet);
     
@@ -338,6 +368,8 @@ export class SMPClient {
     }
     
     const parsed = parseSMPResponse(response);
+    console.log('[SMP] Test image response:', JSON.stringify(parsed.payload));
+    
     if (parsed.payload['rc'] !== undefined && parsed.payload['rc'] !== 0) {
       this.log(`Image test failed: rc=${parsed.payload['rc']}`);
       return false;

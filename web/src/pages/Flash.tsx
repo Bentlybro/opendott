@@ -106,33 +106,48 @@ export function FlashPage() {
       setState('uploading');
       setStatusMessage('Uploading firmware...');
       
-      const uploadSuccess = await smp.uploadImage(firmwareData, (percent) => {
+      const uploadResult = await smp.uploadImage(firmwareData, (percent) => {
         setProgress(percent);
         setStatusMessage(`Uploading firmware... ${percent}%`);
       });
 
-      if (!uploadSuccess) {
+      if (!uploadResult.success) {
         throw new Error('Firmware upload failed. Please try again.');
       }
 
-      // Get the new image hash
+      // Mark the new image for test boot
       setState('confirming');
-      setStatusMessage('Verifying upload...');
-      addLog('Verifying uploaded firmware...');
+      setStatusMessage('Marking firmware for boot...');
       
+      // First try to get the hash from image list
+      addLog('Checking uploaded firmware...');
       const newImages = await smp.listImages();
-      if (!newImages || newImages.length < 2) {
-        throw new Error('Could not verify uploaded firmware.');
+      
+      let imageHash: Uint8Array | null = null;
+      
+      if (newImages && newImages.length >= 1) {
+        // Find the non-active slot (where we just uploaded)
+        const newImage = newImages.find(img => !img.active);
+        if (newImage) {
+          addLog(`Found uploaded firmware in slot ${newImage.slot}`);
+          imageHash = newImage.hash;
+        }
       }
-
-      // Find the non-active slot (where we just uploaded)
-      const newImage = newImages.find(img => !img.active && img.pending);
-      if (newImage) {
-        addLog(`New firmware uploaded to slot ${newImage.slot}`);
-        
-        // Mark for test boot
+      
+      // If we couldn't get hash from image list, use our computed hash
+      if (!imageHash && uploadResult.hash) {
+        addLog('Using computed firmware hash');
+        imageHash = uploadResult.hash;
+      }
+      
+      if (imageHash) {
         addLog('Marking new firmware for boot...');
-        await smp.testImage(newImage.hash);
+        const testSuccess = await smp.testImage(imageHash);
+        if (!testSuccess) {
+          addLog('Warning: Failed to mark image for test - device may not boot new firmware');
+        }
+      } else {
+        addLog('Warning: No hash available - skipping image test');
       }
 
       // Reset device to boot new firmware
