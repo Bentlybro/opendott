@@ -123,7 +123,7 @@ function App() {
       <footer className="border-t border-zinc-800 py-6">
         <div className="max-w-4xl mx-auto px-4 text-center text-zinc-500 text-sm">
           <p>
-            OpenDOTT is open-source software.{' '}
+            OpenDOTT v0.4 — Open-source software.{' '}
             <a href="https://github.com/Bentlybro/opendott" className="text-blue-400 hover:underline">
               View on GitHub
             </a>
