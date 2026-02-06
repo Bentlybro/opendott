@@ -26,10 +26,10 @@ const UUID_1528 = '00001528-0000-1000-8000-00805f9b34fb';  // Trigger
 const UUID_1529 = '00001529-0000-1000-8000-00805f9b34fb';  // Alt data
 const UUID_1530 = '00001530-0000-1000-8000-00805f9b34fb';  // Response
 
-// Transfer settings
+// Transfer settings (matched EXACTLY to working Python script)
 const DEFAULT_MTU = 517;     // Web Bluetooth typically negotiates this
-const MAX_CHUNK_SIZE = 244;  // Safer chunk size (like Python with MTU 247)
-const CHUNK_DELAY_MS = 10;   // Slightly slower for reliability
+const MAX_CHUNK_SIZE = 495;  // Match Python: MTU - 3 (not 244!)
+const CHUNK_DELAY_MS = 5;    // Match Python: 5ms (not 10ms!)
 const MAX_RETRIES = 3;
 const MAX_RECONNECT_ATTEMPTS = 2;
 
@@ -536,10 +536,10 @@ class DottBleService {
       this.log('');
       this.log(`Transfer: ${totalBytes} bytes in ${elapsed.toFixed(2)}s`);
 
-      // Wait for response (2 seconds like Python)
+      // Wait for response (5 seconds - match Python exactly)
       this.log('');
       this.log('Waiting for response...');
-      await new Promise(r => setTimeout(r, 2000));
+      await new Promise(r => setTimeout(r, 5000));
       
       this.log(`Notifications: ${JSON.stringify(this.notifications)}`);
 
