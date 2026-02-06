@@ -122,33 +122,21 @@ export function FlashPage() {
         throw new Error('Firmware upload failed. Please try again.');
       }
 
-      // Verify upload and try to mark for boot
+      // Verify upload completed
       setState('confirming');
-      setStatusMessage('Verifying firmware...');
+      setStatusMessage('Verifying...');
       
-      addLog('Checking uploaded firmware...');
+      addLog('Verifying upload...');
       const newImages = await smp.listImages();
       
       if (newImages && newImages.length >= 2) {
         const newImage = newImages.find(img => !img.active);
         if (newImage) {
-          addLog(`Firmware uploaded to slot ${newImage.slot} successfully`);
-          
-          // Try testImage but don't fail if it doesn't work
-          // Some MCUboot builds auto-boot newest valid image
-          addLog('Attempting to mark for boot...');
-          const testSuccess = await smp.testImage(newImage.hash);
-          if (testSuccess) {
-            addLog('Firmware marked for boot');
-          } else {
-            addLog('Note: testImage not supported - MCUboot may auto-boot on reset');
-          }
+          addLog(`Firmware uploaded to slot ${newImage.slot}`);
         }
-      } else {
-        addLog('Warning: Could not verify upload - proceeding with reset anyway');
       }
 
-      // Reset device - MCUboot should boot the new image
+      // Reset device
       addLog('Restarting device...');
       await smp.reset();
 

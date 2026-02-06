@@ -15,14 +15,14 @@ const OP_READ = 0x00;
 const OP_WRITE = 0x02;
 
 // SMP Group IDs
+const GROUP_OS = 0x00;
 const GROUP_IMAGE = 0x01;
 
-// SMP Command IDs for Image group
+// SMP Command IDs
+const CMD_OS_RESET = 0x05;
 const CMD_IMAGE_LIST = 0x00;
 const CMD_IMAGE_UPLOAD = 0x01;
-const CMD_IMAGE_TEST = 0x02;
-// const CMD_IMAGE_CONFIRM = 0x01;  // Same as upload, different payload
-const CMD_IMAGE_RESET = 0x05;
+const CMD_IMAGE_ERASE = 0x05;
 
 // Simple CBOR encoder for our needs
 function encodeCBOR(obj: Record<string, unknown>): Uint8Array {
@@ -405,48 +405,11 @@ export class SMPClient {
     return { success: true, hash: firmwareHash };
   }
 
-  async testImage(hash: Uint8Array): Promise<boolean> {
-    this.log('Marking new image for test boot...');
-    const hashHex = Array.from(hash).map(b => b.toString(16).padStart(2, '0')).join('');
-    this.log(`Hash (${hash.length} bytes): ${hashHex.slice(0, 16)}...`);
-    console.log('[SMP] Full hash for testImage:', hashHex);
-    
-    // Try without confirm field first (some implementations don't like it)
-    const payload = encodeCBOR({ 'hash': hash });
-    console.log('[SMP] testImage payload bytes:', Array.from(payload).map(b => b.toString(16).padStart(2, '0')).join(' '));
-    
-    const packet = buildSMPPacket(OP_WRITE, GROUP_IMAGE, CMD_IMAGE_TEST, payload, this.seq++);
-    const response = await this.sendAndWait(packet);
-    
-    if (!response) {
-      this.log('No response to image test');
-      return false;
-    }
-    
-    const parsed = parseSMPResponse(response);
-    console.log('[SMP] Test image response:', JSON.stringify(parsed.payload));
-    
-    if (parsed.payload['rc'] !== undefined && parsed.payload['rc'] !== 0) {
-      // rc=8 = ENOENT (hash not found)
-      // rc=3 = EINVAL (invalid)
-      const rcCodes: Record<number, string> = {
-        3: 'EINVAL (invalid parameter)',
-        5: 'ENOTSUP (not supported)',
-        8: 'ENOENT (image not found)',
-      };
-      const rcName = rcCodes[parsed.payload['rc'] as number] || `unknown`;
-      this.log(`Image test failed: rc=${parsed.payload['rc']} (${rcName})`);
-      return false;
-    }
-    
-    this.log('Image marked for test boot');
-    return true;
-  }
-
   async reset(): Promise<boolean> {
     this.log('Resetting device...');
     
-    const packet = buildSMPPacket(OP_WRITE, GROUP_IMAGE, CMD_IMAGE_RESET, new Uint8Array(0), this.seq++);
+    // Use OS group reset command (not Image group)
+    const packet = buildSMPPacket(OP_WRITE, GROUP_OS, CMD_OS_RESET, new Uint8Array(0), this.seq++);
     await this.char?.writeValueWithoutResponse(packet as unknown as BufferSource);
     
     // Device will disconnect, so we don't wait for response
@@ -458,7 +421,7 @@ export class SMPClient {
     this.log(`Erasing slot ${slot}...`);
     
     const payload = encodeCBOR({ 'slot': slot });
-    const packet = buildSMPPacket(OP_WRITE, GROUP_IMAGE, 0x05, payload, this.seq++);  // CMD_IMAGE_ERASE = 0x05
+    const packet = buildSMPPacket(OP_WRITE, GROUP_IMAGE, CMD_IMAGE_ERASE, payload, this.seq++);
     const response = await this.sendAndWait(packet, 30000);  // Erase can take time
     
     if (!response) {
