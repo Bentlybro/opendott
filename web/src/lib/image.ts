@@ -170,24 +170,46 @@ export async function validateImage(file: File): Promise<ImageInfo> {
   });
 }
 
-export async function processImageForDevice(file: File): Promise<Uint8Array> {
-  // For now, just return the raw file data
-  // TODO: Add resizing/cropping to 240x240 if needed
-  // TODO: Convert to GIF format if not already
+export async function processImageForDevice(
+  file: File,
+  autoConvert: boolean = true,
+  onProgress?: (stage: string, progress: number) => void
+): Promise<Uint8Array> {
+  // Read the file
+  const buffer = await file.arrayBuffer();
+  const data = new Uint8Array(buffer);
+  const type = detectImageType(data);
   
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
+  // Check if conversion is needed
+  if (type === 'gif' && autoConvert) {
+    const { needsConversion, convertAnimatedGif, convertStaticToGif } = await import('./gifConverter');
+    const check = needsConversion(data);
     
-    reader.onload = () => {
-      resolve(new Uint8Array(reader.result as ArrayBuffer));
-    };
-    
-    reader.onerror = () => {
-      reject(new Error('Failed to read file'));
-    };
-    
-    reader.readAsArrayBuffer(file);
-  });
+    if (check.needs) {
+      onProgress?.('Converting', 0);
+      
+      // Check if animated
+      const isAnimated = isAnimatedGif(data);
+      
+      if (isAnimated) {
+        const result = await convertAnimatedGif(file, (p) => {
+          onProgress?.(p.stage, p.progress);
+        });
+        return result.data;
+      } else {
+        // Static GIF that needs resize
+        return await convertStaticToGif(file);
+      }
+    }
+  } else if ((type === 'png' || type === 'jpeg') && autoConvert) {
+    // Convert static images to GIF
+    const { convertStaticToGif } = await import('./gifConverter');
+    onProgress?.('Converting', 50);
+    return await convertStaticToGif(file);
+  }
+  
+  // Return raw data if no conversion needed
+  return data;
 }
 
 export function formatFileSize(bytes: number): string {

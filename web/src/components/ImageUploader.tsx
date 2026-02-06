@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Upload, Image as ImageIcon, X, Check, Loader2 } from 'lucide-react';
+import { Upload, Image as ImageIcon, X, Check, Loader2, RefreshCw } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { validateImage, processImageForDevice, formatFileSize, type ImageInfo } from '../lib/image';
 
@@ -15,6 +15,7 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
   const [imageInfo, setImageInfo] = useState<ImageInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [conversionStatus, setConversionStatus] = useState<string | null>(null);
 
   const handleFile = useCallback(async (file: File) => {
     setError(null);
@@ -46,14 +47,27 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
     if (!imageInfo || !isConnected) return;
     
     setUploadSuccess(false);
+    setConversionStatus(null);
+    
     try {
-      const data = await processImageForDevice(imageInfo.file);
+      // Process/convert image if needed
+      const data = await processImageForDevice(
+        imageInfo.file,
+        true,  // autoConvert
+        (stage, progress) => {
+          setConversionStatus(`${stage}... ${Math.round(progress)}%`);
+        }
+      );
+      
+      setConversionStatus(null);
+      
       const success = await onUpload(data);
       setUploadSuccess(success);
       if (!success) {
         setError('Upload failed. Please try again.');
       }
     } catch (err) {
+      setConversionStatus(null);
       setError((err as Error).message);
     }
   }, [imageInfo, isConnected, onUpload]);
@@ -166,7 +180,12 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
                   (!isConnected || isUploading) && "opacity-50 cursor-not-allowed"
                 )}
               >
-                {isUploading ? (
+                {conversionStatus ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    {conversionStatus}
+                  </>
+                ) : isUploading ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
                     Uploading... {Math.round(progress)}%
@@ -186,10 +205,19 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
             </div>
           </div>
           
-          {/* Frame warning for optimized GIFs */}
+          {/* Conversion info */}
           {imageInfo.frameWarning && (
-            <div className="mt-4 p-3 rounded-lg bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 text-sm">
-              {imageInfo.frameWarning}
+            <div className="mt-4 p-3 rounded-lg bg-blue-500/20 border border-blue-500/50 text-blue-400 text-sm">
+              <strong>Auto-convert enabled:</strong> {imageInfo.frameWarning.replace('⚠️ ', '').split('.')[0]}.
+              <br />
+              <span className="text-blue-300">Image will be converted to 240×240 with full frames automatically.</span>
+            </div>
+          )}
+          
+          {/* Size warning */}
+          {(imageInfo.width !== 240 || imageInfo.height !== 240) && !imageInfo.frameWarning && (
+            <div className="mt-4 p-3 rounded-lg bg-blue-500/20 border border-blue-500/50 text-blue-400 text-sm">
+              <strong>Auto-resize:</strong> {imageInfo.width}×{imageInfo.height} → 240×240
             </div>
           )}
           

@@ -1,0 +1,250 @@
+/**
+ * GIF Converter - Auto-resize and un-optimize GIFs for DOTT
+ * 
+ * The DOTT device requires:
+ * - 240x240 pixel dimensions
+ * - Full frames (no delta/optimized frames)
+ * 
+ * This uses gifuct-js to decode and gif.js to encode.
+ */
+
+import { parseGIF, decompressFrames } from 'gifuct-js';
+// @ts-ignore - gif.js doesn't have types
+import GIF from 'gif.js-upgrade';
+
+const TARGET_SIZE = 240;
+
+export interface ConversionResult {
+  data: Uint8Array;
+  frameCount: number;
+  originalSize: { width: number; height: number };
+}
+
+export interface ConversionProgress {
+  stage: 'decoding' | 'rendering' | 'encoding';
+  progress: number;  // 0-100
+}
+
+/**
+ * Check if GIF needs conversion
+ */
+export function needsConversion(data: Uint8Array): { needs: boolean; reason: string } {
+  if (data.length < 10) {
+    return { needs: false, reason: 'Invalid GIF' };
+  }
+  
+  const width = data[6] | (data[7] << 8);
+  const height = data[8] | (data[9] << 8);
+  
+  if (width !== TARGET_SIZE || height !== TARGET_SIZE) {
+    return { needs: true, reason: `Resize ${width}×${height} → ${TARGET_SIZE}×${TARGET_SIZE}` };
+  }
+  
+  // Check for partial frames
+  let pos = 13;
+  if (data[10] & 0x80) {
+    pos += 3 * (2 ** ((data[10] & 0x07) + 1));
+  }
+  
+  while (pos < data.length - 1) {
+    if (data[pos] === 0x21) {
+      if (data[pos + 1] === 0xF9) pos += 8;
+      else {
+        pos += 2;
+        while (pos < data.length && data[pos] !== 0) pos += data[pos] + 1;
+        pos += 1;
+      }
+    } else if (data[pos] === 0x2C) {
+      const fw = data[pos + 5] | (data[pos + 6] << 8);
+      const fh = data[pos + 7] | (data[pos + 8] << 8);
+      if (fw !== width || fh !== height) {
+        return { needs: true, reason: 'Convert partial frames → full frames' };
+      }
+      pos += 10;
+      if (data[pos - 1] & 0x80) pos += 3 * (2 ** ((data[pos - 1] & 0x07) + 1));
+      pos += 1;
+      while (pos < data.length && data[pos] !== 0) pos += data[pos] + 1;
+      pos += 1;
+    } else if (data[pos] === 0x3B) break;
+    else pos += 1;
+  }
+  
+  return { needs: false, reason: 'Ready' };
+}
+
+/**
+ * Convert animated GIF to 240x240 with full frames
+ */
+export async function convertAnimatedGif(
+  file: File,
+  onProgress?: (progress: ConversionProgress) => void
+): Promise<ConversionResult> {
+  // Read file
+  const buffer = await file.arrayBuffer();
+  const data = new Uint8Array(buffer);
+  
+  onProgress?.({ stage: 'decoding', progress: 10 });
+  
+  // Parse GIF
+  const gif = parseGIF(data.buffer as ArrayBuffer);
+  const frames = decompressFrames(gif, true);
+  
+  if (frames.length === 0) {
+    throw new Error('No frames found in GIF');
+  }
+  
+  onProgress?.({ stage: 'decoding', progress: 30 });
+  
+  const originalWidth = gif.lsd.width;
+  const originalHeight = gif.lsd.height;
+  
+  // Create encoder
+  const encoder = new GIF({
+    workers: 2,
+    quality: 10,
+    width: TARGET_SIZE,
+    height: TARGET_SIZE,
+    workerScript: '/gif.worker.js',  // We'll need to add this
+  });
+  
+  // Create canvas for compositing
+  const canvas = document.createElement('canvas');
+  canvas.width = TARGET_SIZE;
+  canvas.height = TARGET_SIZE;
+  const ctx = canvas.getContext('2d')!;
+  
+  // Full-size canvas for frame compositing (original size)
+  const fullCanvas = document.createElement('canvas');
+  fullCanvas.width = originalWidth;
+  fullCanvas.height = originalHeight;
+  const fullCtx = fullCanvas.getContext('2d')!;
+  
+  onProgress?.({ stage: 'rendering', progress: 40 });
+  
+  // Process each frame
+  for (let i = 0; i < frames.length; i++) {
+    const frame = frames[i];
+    
+    // Create ImageData for this frame's patch
+    const frameImageData = new ImageData(
+      new Uint8ClampedArray(frame.patch),
+      frame.dims.width,
+      frame.dims.height
+    );
+    
+    // Put frame patch at correct position
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = frame.dims.width;
+    tempCanvas.height = frame.dims.height;
+    const tempCtx = tempCanvas.getContext('2d')!;
+    tempCtx.putImageData(frameImageData, 0, 0);
+    
+    // Draw patch onto full canvas
+    fullCtx.drawImage(tempCanvas, frame.dims.left, frame.dims.top);
+    
+    // Scale and draw to target canvas
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, TARGET_SIZE, TARGET_SIZE);
+    
+    const scale = Math.min(TARGET_SIZE / originalWidth, TARGET_SIZE / originalHeight);
+    const scaledW = originalWidth * scale;
+    const scaledH = originalHeight * scale;
+    const x = (TARGET_SIZE - scaledW) / 2;
+    const y = (TARGET_SIZE - scaledH) / 2;
+    
+    ctx.drawImage(fullCanvas, x, y, scaledW, scaledH);
+    
+    // Add frame to encoder
+    encoder.addFrame(ctx, {
+      delay: frame.delay || 100,
+      copy: true
+    });
+    
+    // Handle disposal
+    if (frame.disposalType === 2) {
+      // Restore to background
+      fullCtx.clearRect(frame.dims.left, frame.dims.top, frame.dims.width, frame.dims.height);
+    }
+    
+    onProgress?.({ stage: 'rendering', progress: 40 + (i / frames.length) * 40 });
+  }
+  
+  onProgress?.({ stage: 'encoding', progress: 80 });
+  
+  // Render GIF
+  return new Promise((resolve, reject) => {
+    encoder.on('finished', (blob: Blob) => {
+      blob.arrayBuffer().then(buffer => {
+        onProgress?.({ stage: 'encoding', progress: 100 });
+        resolve({
+          data: new Uint8Array(buffer),
+          frameCount: frames.length,
+          originalSize: { width: originalWidth, height: originalHeight }
+        });
+      });
+    });
+    
+    encoder.on('error', reject);
+    encoder.render();
+  });
+}
+
+/**
+ * Convert static image to 240x240 GIF
+ */
+export async function convertStaticToGif(file: File): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = TARGET_SIZE;
+      canvas.height = TARGET_SIZE;
+      const ctx = canvas.getContext('2d')!;
+      
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, TARGET_SIZE, TARGET_SIZE);
+      
+      const scale = Math.min(TARGET_SIZE / img.naturalWidth, TARGET_SIZE / img.naturalHeight);
+      const scaledW = img.naturalWidth * scale;
+      const scaledH = img.naturalHeight * scale;
+      const x = (TARGET_SIZE - scaledW) / 2;
+      const y = (TARGET_SIZE - scaledH) / 2;
+      
+      ctx.drawImage(img, x, y, scaledW, scaledH);
+      
+      // Create single-frame GIF
+      const encoder = new GIF({
+        workers: 1,
+        quality: 10,
+        width: TARGET_SIZE,
+        height: TARGET_SIZE,
+        workerScript: '/gif.worker.js',
+      });
+      
+      encoder.addFrame(ctx, { delay: 1000, copy: true });
+      
+      encoder.on('finished', (blob: Blob) => {
+        blob.arrayBuffer().then(buffer => {
+          URL.revokeObjectURL(url);
+          resolve(new Uint8Array(buffer));
+        });
+      });
+      
+      encoder.on('error', (e: Error) => {
+        URL.revokeObjectURL(url);
+        reject(e);
+      });
+      
+      encoder.render();
+    };
+    
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Failed to load image'));
+    };
+    
+    img.src = url;
+  });
+}
