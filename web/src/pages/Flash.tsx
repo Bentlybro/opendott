@@ -207,8 +207,11 @@ export function FlashPage() {
           <div className="mb-8 p-6 rounded-xl bg-green-500/20 border border-green-500/50 text-center">
             <Check className="w-16 h-16 mx-auto mb-4 text-green-400" />
             <h2 className="text-2xl font-bold text-green-400 mb-2">Update Complete!</h2>
-            <p className="text-green-300 mb-6">
-              Your DOTT is now running the latest firmware. It will restart automatically.
+            <p className="text-green-300 mb-4">
+              Firmware uploaded successfully! Your DOTT should restart automatically.
+            </p>
+            <p className="text-zinc-400 text-sm mb-6">
+              If it doesn't restart within 30 seconds, try turning it off and on again manually.
             </p>
             <div className="flex gap-4 justify-center">
               <a

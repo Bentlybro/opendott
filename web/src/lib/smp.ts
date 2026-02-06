@@ -392,9 +392,14 @@ export class SMPClient {
 
   async testImage(hash: Uint8Array): Promise<boolean> {
     this.log('Marking new image for test boot...');
-    this.log(`Hash: ${Array.from(hash.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join('')}...`);
+    const hashHex = Array.from(hash).map(b => b.toString(16).padStart(2, '0')).join('');
+    this.log(`Hash (${hash.length} bytes): ${hashHex.slice(0, 16)}...`);
+    console.log('[SMP] Full hash for testImage:', hashHex);
     
-    const payload = encodeCBOR({ 'hash': hash, 'confirm': false });
+    // Try without confirm field first (some implementations don't like it)
+    const payload = encodeCBOR({ 'hash': hash });
+    console.log('[SMP] testImage payload bytes:', Array.from(payload).map(b => b.toString(16).padStart(2, '0')).join(' '));
+    
     const packet = buildSMPPacket(OP_WRITE, GROUP_IMAGE, CMD_IMAGE_TEST, payload, this.seq++);
     const response = await this.sendAndWait(packet);
     
@@ -407,7 +412,15 @@ export class SMPClient {
     console.log('[SMP] Test image response:', JSON.stringify(parsed.payload));
     
     if (parsed.payload['rc'] !== undefined && parsed.payload['rc'] !== 0) {
-      this.log(`Image test failed: rc=${parsed.payload['rc']}`);
+      // rc=8 = ENOENT (hash not found)
+      // rc=3 = EINVAL (invalid)
+      const rcCodes: Record<number, string> = {
+        3: 'EINVAL (invalid parameter)',
+        5: 'ENOTSUP (not supported)',
+        8: 'ENOENT (image not found)',
+      };
+      const rcName = rcCodes[parsed.payload['rc'] as number] || `unknown`;
+      this.log(`Image test failed: rc=${parsed.payload['rc']} (${rcName})`);
       return false;
     }
     
