@@ -3,8 +3,14 @@ name: Build OpenDOTT Firmware
 on:
   push:
     branches: [main, master]
+    paths:
+      - 'firmware/**'
+      - '.github/workflows/build.yml'
   pull_request:
     branches: [main, master]
+    paths:
+      - 'firmware/**'
+      - '.github/workflows/build.yml'
   workflow_dispatch:
 
 env:
@@ -45,7 +51,7 @@ jobs:
 
       - name: Initialize Zephyr workspace
         run: |
-          west init -l opendott
+          west init -l opendott/firmware
           west update --narrow -o=--depth=1
 
       - name: Install Zephyr Python deps
@@ -54,7 +60,7 @@ jobs:
 
       - name: Build firmware
         run: |
-          west build -b opendott opendott -- -DBOARD_ROOT=${{ github.workspace }}/opendott -DDTS_ROOT=${{ github.workspace }}/opendott
+          west build -b opendott opendott/firmware -- -DBOARD_ROOT=${{ github.workspace }}/opendott/firmware -DDTS_ROOT=${{ github.workspace }}/opendott/firmware
 
       - name: Create MCUboot DFU image
         run: |

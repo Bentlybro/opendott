@@ -35,3 +35,9 @@ venv/
 # Generated files
 compile_commands.json
 .cache/
+
+# Web app
+web/node_modules/
+web/dist/
+web/.env
+web/.env.local

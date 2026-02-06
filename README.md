@@ -1,125 +1,76 @@
-# OpenDOTT 🎯
+# OpenDOTT
 
-**Open-source tools for the DOTT wearable display**
+Open-source firmware and web tools for the DOTT wearable display.
 
-Upload custom GIFs to your DOTT badge without the official app!
+![Build Status](https://github.com/Bentlybro/opendott/actions/workflows/build.yml/badge.svg)
 
-![DOTT Device](https://weardott.com/images/dott-device.png)
+## 🎯 What is this?
 
-## Features
+The DOTT is a small wearable display that shows GIFs. The original firmware has a bug where uploading a non-GIF file can brick the device. This project provides:
 
-- ✅ **Working upload tool** - Python CLI for uploading GIFs
-- ✅ **Full protocol documentation** - Completely reverse-engineered
-- ✅ **GIF validation** - Prevents bricking from invalid files
-- 🚧 **Custom firmware** - Coming soon!
+1. **Open-source firmware** with proper image validation
+2. **Web app** to easily flash firmware and upload images directly from your browser
 
-## Quick Start
-
-### Requirements
-
-- Python 3.8+
-- Bluetooth LE support
-- DOTT wearable device
-
-### Installation
-
-```bash
-git clone https://github.com/Bentlybro/opendott.git
-cd opendott/tools
-pip install bleak
-```
-
-### Upload a GIF
-
-```bash
-# Scan for devices
-python dott_upload.py scan
-
-# Upload an image
-python dott_upload.py test_image.gif
-
-# Or specify device address
-python dott_upload.py -a E2:E2:B4:44:D5:30 test_image.gif
-```
-
-## GIF Requirements
-
-| Property | Requirement |
-|----------|-------------|
-| Format | GIF87a or GIF89a |
-| Dimensions | 240x240 pixels |
-| Animation | Supported |
-
-## Protocol Overview
-
-The DOTT uses a simple BLE protocol:
-
-1. **Trigger** - Write `0x00401000` to characteristic 0x1528
-2. **Wait** - Device responds with `0xFFFFFFFF` when ready
-3. **Stream** - Send raw GIF bytes to characteristic 0x1525
-4. **Done** - Device responds "Transfer Complete"
-
-See [docs/PROTOCOL.md](docs/PROTOCOL.md) for the full specification.
-
-## Hardware
-
-| Component | Part |
-|-----------|------|
-| MCU | nRF52840 |
-| Display | GC9A01 (240x240 round LCD) |
-| Flash | GD25Q128 (16MB) |
-| RTOS | Zephyr v3.7.0 |
-
-## Project Structure
+## 📁 Project Structure
 
 ```
 opendott/
-├── tools/           # Python upload tools
-│   ├── dott_upload.py      # Main upload tool
-│   └── test_image.gif      # Test GIF
-├── docs/            # Documentation
-│   ├── PROTOCOL.md         # BLE protocol spec
-│   ├── HARDWARE.md         # Hardware details
-│   └── ROADMAP.md          # Future plans
-├── src/             # Firmware source (WIP)
-└── boards/          # Zephyr board definitions
+├── firmware/     # Zephyr RTOS firmware for nRF52840
+├── web/          # React web app for flashing & image uploads
+├── docs/         # Hardware documentation & protocol specs
+└── tools/        # Python scripts for development/testing
 ```
 
-## Roadmap
+## 🚀 Quick Start
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for planned features:
+### Flash Firmware (via Web App)
 
-- 📱 Mobile app
-- 🖥️ Desktop GUI
-- ⚡ Auto-conversion from PNG/JPEG
-- 🔧 Custom firmware with new features
-- ⏰ Clock mode, notifications, and more!
+1. Visit [opendott.dev](https://opendott.dev) (coming soon)
+2. Click "Connect Device"
+3. Select your DOTT from the Bluetooth list
+4. Click "Flash Firmware"
 
-## Why This Exists
+### Upload Images
 
-The official DOTT app works fine, but:
-- No desktop support
-- Can't automate uploads
-- Uploading non-GIF files can brick the device!
+1. Connect to your DOTT via the web app
+2. Drag & drop an image or GIF
+3. Preview how it looks on the round display
+4. Click "Upload"
 
-This project provides safe, open-source alternatives.
+## 🔧 Development
 
-## Contributing
+### Firmware
 
-Contributions welcome! Areas that need help:
-- GUI applications
-- Mobile apps
-- Firmware development
-- Testing on different platforms
+Requirements: Zephyr SDK, west, arm-none-eabi toolchain
 
-## Credits
+```bash
+cd firmware
+west init -l .
+west update
+west build -b opendott
+```
 
-Reverse engineered by **Bently** and **Orion** 🌟
+### Web App
 
-## License
+Requirements: Node.js 18+
 
-MIT - See [LICENSE](LICENSE)
+```bash
+cd web
+npm install
+npm run dev
+```
 
----
+## 📋 Hardware
 
-*Not affiliated with DOTT/weardott. Use at your own risk.*
+- **MCU:** nRF52840 (ARM Cortex-M4F)
+- **Display:** GC9A01 240x240 round LCD
+- **Flash:** GD25Q128 16MB QSPI
+- **Connectivity:** Bluetooth Low Energy
+
+## 📜 License
+
+MIT License - See [LICENSE](LICENSE)
+
+## 🙏 Credits
+
+Reverse engineering and firmware by the community. Original DOTT device by Bott.
