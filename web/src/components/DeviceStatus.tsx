@@ -82,12 +82,6 @@ export function DeviceStatus({ state, deviceName, deviceInfo, onConnect, onDisco
               Model: {deviceInfo.modelNumber}
             </div>
           )}
-          
-          {deviceInfo.manufacturer && (
-            <div className="text-sm text-zinc-400">
-              {deviceInfo.manufacturer}
-            </div>
-          )}
         </div>
       )}
     </div>
