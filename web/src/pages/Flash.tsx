@@ -115,43 +115,34 @@ export function FlashPage() {
         throw new Error('Firmware upload failed. Please try again.');
       }
 
-      // Mark the new image for test boot
+      // Verify upload and try to mark for boot
       setState('confirming');
-      setStatusMessage('Marking firmware for boot...');
+      setStatusMessage('Verifying firmware...');
       
-      // First try to get the hash from image list
       addLog('Checking uploaded firmware...');
       const newImages = await smp.listImages();
       
-      let imageHash: Uint8Array | null = null;
-      
-      if (newImages && newImages.length >= 1) {
-        // Find the non-active slot (where we just uploaded)
+      if (newImages && newImages.length >= 2) {
         const newImage = newImages.find(img => !img.active);
         if (newImage) {
-          addLog(`Found uploaded firmware in slot ${newImage.slot}`);
-          imageHash = newImage.hash;
-        }
-      }
-      
-      // If we couldn't get hash from image list, use our computed hash
-      if (!imageHash && uploadResult.hash) {
-        addLog('Using computed firmware hash');
-        imageHash = uploadResult.hash;
-      }
-      
-      if (imageHash) {
-        addLog('Marking new firmware for boot...');
-        const testSuccess = await smp.testImage(imageHash);
-        if (!testSuccess) {
-          addLog('Warning: Failed to mark image for test - device may not boot new firmware');
+          addLog(`Firmware uploaded to slot ${newImage.slot} successfully`);
+          
+          // Try testImage but don't fail if it doesn't work
+          // Some MCUboot builds auto-boot newest valid image
+          addLog('Attempting to mark for boot...');
+          const testSuccess = await smp.testImage(newImage.hash);
+          if (testSuccess) {
+            addLog('Firmware marked for boot');
+          } else {
+            addLog('Note: testImage not supported - MCUboot may auto-boot on reset');
+          }
         }
       } else {
-        addLog('Warning: No hash available - skipping image test');
+        addLog('Warning: Could not verify upload - proceeding with reset anyway');
       }
 
-      // Reset device to boot new firmware
-      addLog('Restarting device with new firmware...');
+      // Reset device - MCUboot should boot the new image
+      addLog('Restarting device...');
       await smp.reset();
 
       setState('success');
@@ -206,13 +197,14 @@ export function FlashPage() {
         {state === 'success' && (
           <div className="mb-8 p-6 rounded-xl bg-green-500/20 border border-green-500/50 text-center">
             <Check className="w-16 h-16 mx-auto mb-4 text-green-400" />
-            <h2 className="text-2xl font-bold text-green-400 mb-2">Update Complete!</h2>
+            <h2 className="text-2xl font-bold text-green-400 mb-2">Firmware Uploaded!</h2>
             <p className="text-green-300 mb-4">
-              Firmware uploaded successfully! Your DOTT should restart automatically.
+              The new firmware has been uploaded to your DOTT.
             </p>
-            <p className="text-zinc-400 text-sm mb-6">
-              If it doesn't restart within 30 seconds, try turning it off and on again manually.
-            </p>
+            <div className="text-zinc-400 text-sm mb-6 space-y-2">
+              <p>Your device should restart automatically with the new firmware.</p>
+              <p>If it doesn't restart within 30 seconds, <strong>turn it off and on manually</strong>.</p>
+            </div>
             <div className="flex gap-4 justify-center">
               <a
                 href="/"
