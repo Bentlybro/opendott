@@ -67,13 +67,14 @@ export async function optimizeGif(
     // Convert Uint8Array to ArrayBuffer for the library
     const inputBuffer = input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength);
     
-    // Run gifsicle - returns File[] 
+    // Run gifsicle - returns File[]
+    // Output must go to /out/ directory (gifsicle-wasm-browser convention)
     const result = await gifsicle.run({
       input: [{
         file: inputBuffer,
         name: 'input.gif',
       }],
-      command: [`${args.join(' ')} input.gif -o /output/output.gif`],
+      command: [`${args.join(' ')} input.gif -o /out/output.gif`],
     }) as File[];
     
     // Get output file
