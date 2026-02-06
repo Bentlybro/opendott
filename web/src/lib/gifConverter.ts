@@ -13,6 +13,7 @@ import { parseGIF, decompressFrames } from 'gifuct-js';
 import GIF from 'gif.js-upgrade';
 
 const TARGET_SIZE = 240;
+const MAX_FRAMES = 30;  // Limit frame count to keep file size reasonable
 
 export interface ConversionResult {
   data: Uint8Array;
@@ -93,18 +94,30 @@ export async function convertAnimatedGif(
     throw new Error('No frames found in GIF');
   }
   
+  // Limit frame count to keep file size reasonable
+  let frameStep = 1;
+  let selectedFrames = frames;
+  
+  if (frames.length > MAX_FRAMES) {
+    // Sample frames evenly
+    frameStep = Math.ceil(frames.length / MAX_FRAMES);
+    selectedFrames = frames.filter((_, i) => i % frameStep === 0);
+    console.log(`Reducing frames: ${frames.length} → ${selectedFrames.length} (every ${frameStep}th frame)`);
+  }
+  
   onProgress?.({ stage: 'decoding', progress: 30 });
   
   const originalWidth = gif.lsd.width;
   const originalHeight = gif.lsd.height;
   
-  // Create encoder
+  // Create encoder with optimized settings for smaller file size
   const encoder = new GIF({
     workers: 2,
-    quality: 10,
+    quality: 20,  // Higher = faster but larger. 10-20 is good balance.
     width: TARGET_SIZE,
     height: TARGET_SIZE,
-    workerScript: '/gif.worker.js',  // We'll need to add this
+    workerScript: '/gif.worker.js',
+    dither: false,  // Disable dithering for cleaner output
   });
   
   // Create canvas for compositing
@@ -122,8 +135,10 @@ export async function convertAnimatedGif(
   onProgress?.({ stage: 'rendering', progress: 40 });
   
   // Process each frame
-  for (let i = 0; i < frames.length; i++) {
-    const frame = frames[i];
+  for (let i = 0; i < selectedFrames.length; i++) {
+    const frame = selectedFrames[i];
+    // Adjust delay to compensate for skipped frames
+    const adjustedDelay = (frame.delay || 100) * frameStep;
     
     // Create ImageData for this frame's patch
     const frameImageData = new ImageData(
@@ -156,7 +171,7 @@ export async function convertAnimatedGif(
     
     // Add frame to encoder
     encoder.addFrame(ctx, {
-      delay: frame.delay || 100,
+      delay: adjustedDelay,
       copy: true
     });
     
@@ -166,7 +181,7 @@ export async function convertAnimatedGif(
       fullCtx.clearRect(frame.dims.left, frame.dims.top, frame.dims.width, frame.dims.height);
     }
     
-    onProgress?.({ stage: 'rendering', progress: 40 + (i / frames.length) * 40 });
+    onProgress?.({ stage: 'rendering', progress: 40 + (i / selectedFrames.length) * 40 });
   }
   
   onProgress?.({ stage: 'encoding', progress: 80 });
@@ -176,9 +191,10 @@ export async function convertAnimatedGif(
     encoder.on('finished', (blob: Blob) => {
       blob.arrayBuffer().then(buffer => {
         onProgress?.({ stage: 'encoding', progress: 100 });
+        console.log(`Converted GIF: ${selectedFrames.length} frames, ${buffer.byteLength} bytes`);
         resolve({
           data: new Uint8Array(buffer),
-          frameCount: frames.length,
+          frameCount: selectedFrames.length,
           originalSize: { width: originalWidth, height: originalHeight }
         });
       });
