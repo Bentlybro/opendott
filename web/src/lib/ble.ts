@@ -18,8 +18,9 @@ const UUID_1528 = '00001528-0000-1000-8000-00805f9b34fb';  // Trigger
 const UUID_1529 = '00001529-0000-1000-8000-00805f9b34fb';  // Alt data
 const UUID_1530 = '00001530-0000-1000-8000-00805f9b34fb';  // Response
 
-// Transfer settings (same as Python)
-const DEFAULT_MTU = 517;  // Web Bluetooth typically negotiates higher MTU
+// Transfer settings
+const DEFAULT_MTU = 517;     // Web Bluetooth typically negotiates this
+const MAX_CHUNK_SIZE = 512;  // Web Bluetooth hard limit per write
 const CHUNK_DELAY_MS = 5;
 
 /**
@@ -251,7 +252,7 @@ class DottBleService {
       this.setState('uploading');
       this.notifications = [];
       const totalBytes = data.length;
-      const chunkSize = this.mtu - 3;  // Same as Python: MTU - 3
+      const chunkSize = Math.min(this.mtu - 3, MAX_CHUNK_SIZE);  // Web BT max is 512
       
       this.log('============================================================');
       this.log(`Uploading ${totalBytes} bytes`);
