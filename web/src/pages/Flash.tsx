@@ -136,16 +136,28 @@ export function FlashPage() {
 
         {/* Download firmware */}
         <div className="mb-6 p-4 rounded-xl bg-zinc-900 border border-zinc-800">
-          <div className="font-medium mb-2">📦 OpenDOTT Firmware</div>
+          <div className="font-medium mb-3">📦 Official Firmware (Recommended)</div>
+          <div className="flex items-center gap-4 mb-4">
+            <a 
+              href="/release2.0.bin" 
+              download="release2.0.bin"
+              className="px-4 py-2 rounded-lg bg-green-500 text-white font-medium hover:bg-green-600 transition-colors"
+            >
+              Download release2.0.bin
+            </a>
+            <span className="text-sm text-zinc-400">~263 KB • Use this for first-time setup</span>
+          </div>
+          
+          <div className="font-medium mb-2 text-zinc-400">🧪 OpenDOTT Firmware (Experimental)</div>
           <div className="flex items-center gap-4">
             <a 
               href="/opendott-firmware.bin" 
               download="opendott-firmware.bin"
-              className="px-4 py-2 rounded-lg bg-green-500 text-white font-medium hover:bg-green-600 transition-colors"
+              className="px-4 py-2 rounded-lg bg-zinc-700 text-white font-medium hover:bg-zinc-600 transition-colors"
             >
               Download opendott-firmware.bin
             </a>
-            <span className="text-sm text-zinc-400">~193 KB</span>
+            <span className="text-sm text-zinc-500">~193 KB • Custom open-source firmware</span>
           </div>
         </div>
 

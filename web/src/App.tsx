@@ -77,6 +77,27 @@ function App() {
           />
         </div>
 
+        {/* First-time setup notice */}
+        {isConnected && deviceInfo?.firmwareVersion === '0.0.0' && (
+          <div className="mb-8 p-4 rounded-xl bg-yellow-500/20 border border-yellow-500/50">
+            <div className="flex items-start gap-3">
+              <Zap className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <div className="font-medium text-yellow-400">Firmware Update Required</div>
+                <div className="text-sm text-yellow-300 mt-1">
+                  Your DOTT has blank firmware. You need to flash the official firmware first before uploading images.
+                </div>
+                <a
+                  href="/flash"
+                  className="inline-block mt-3 px-4 py-2 rounded-lg bg-yellow-500 text-black font-medium hover:bg-yellow-400 transition-colors"
+                >
+                  Flash Firmware →
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Image uploader */}
         <div className="mb-8">
           <h3 className="text-xl font-semibold mb-4">Upload Image</h3>
