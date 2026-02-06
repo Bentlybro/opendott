@@ -2,14 +2,21 @@ import { useState, useCallback } from 'react';
 import { Upload, AlertTriangle, Loader2, Check, ArrowLeft, RefreshCw, Download } from 'lucide-react';
 import { cn } from '../lib/utils';
 
-// DFU Service UUIDs for Nordic DFU
+// Nordic Secure DFU Service (when device is in DFU mode)
 const DFU_SERVICE_UUID = '0000fe59-0000-1000-8000-00805f9b34fb';
 const DFU_CONTROL_UUID = '8ec90001-f315-4f60-9fb8-838830daea50';
 const DFU_PACKET_UUID = '8ec90002-f315-4f60-9fb8-838830daea50';
 
+// Buttonless DFU characteristics (to trigger DFU mode from normal operation)
+const BUTTONLESS_DFU_UUID = '8ec90003-f315-4f60-9fb8-838830daea50';  // With bonds
+const BUTTONLESS_DFU_NO_BOND_UUID = '8ec90004-f315-4f60-9fb8-838830daea50';  // Without bonds
+
 // Alternative: McuMgr SMP service (used by MCUboot)
 const SMP_SERVICE_UUID = '8d53dc1d-1db7-4cd3-868b-8a527460aa84';
 const SMP_CHAR_UUID = 'da2e7828-fbce-4e01-ae9e-261174997c48';
+
+// DOTT's main service (for normal operation - check if we need to trigger DFU)
+const DOTT_SERVICE_UUID = '0483dadd-6c9d-6ca9-5d41-03ad4fff4bcc';
 
 // Embedded firmware URL (bundled in public/)
 const OFFICIAL_FIRMWARE_URL = '/release2.0.bin';
@@ -67,38 +74,96 @@ export function FlashPage() {
       setState('connecting');
       addLog('Click your DOTT in the Bluetooth picker...');
 
-      // Try to find device with DFU or SMP service
+      // Connect to any DOTT device
       const device = await navigator.bluetooth.requestDevice({
         filters: [
           { namePrefix: 'Dott' },
         ],
-        optionalServices: [DFU_SERVICE_UUID, SMP_SERVICE_UUID, DFU_CONTROL_UUID, DFU_PACKET_UUID, SMP_CHAR_UUID],
+        optionalServices: [
+          DFU_SERVICE_UUID, SMP_SERVICE_UUID, DOTT_SERVICE_UUID,
+          DFU_CONTROL_UUID, DFU_PACKET_UUID, SMP_CHAR_UUID,
+          BUTTONLESS_DFU_UUID, BUTTONLESS_DFU_NO_BOND_UUID
+        ],
       });
 
       setDeviceName(device.name || 'Unknown Device');
       addLog(`Found device: ${device.name}`);
 
-      const server = await device.gatt?.connect();
+      let server = await device.gatt?.connect();
       if (!server) throw new Error('Failed to connect to GATT server');
       
       addLog('Connected to GATT server');
       setState('connected');
 
-      // Try to find DFU service
+      // Try to find DFU service (device already in DFU mode)
       let service;
       let useSmp = false;
+      let needsDfuTrigger = false;
       
       try {
         service = await server.getPrimaryService(DFU_SERVICE_UUID);
-        addLog('Found Nordic DFU service');
+        addLog('Device is in DFU mode');
       } catch {
         try {
           service = await server.getPrimaryService(SMP_SERVICE_UUID);
           addLog('Found MCUboot SMP service');
           useSmp = true;
         } catch {
-          throw new Error('No DFU service found. Make sure your DOTT is in bootloader mode (tap two pins on PCB).');
+          // Device is not in DFU mode - try to trigger buttonless DFU
+          needsDfuTrigger = true;
         }
+      }
+
+      // If not in DFU mode, try to trigger it
+      if (needsDfuTrigger) {
+        addLog('Device not in DFU mode, triggering...');
+        
+        let triggered = false;
+        
+        // Try buttonless DFU (no bonds)
+        try {
+          const dfuService = await server.getPrimaryService(DFU_SERVICE_UUID);
+          const buttonlessChar = await dfuService.getCharacteristic(BUTTONLESS_DFU_NO_BOND_UUID);
+          await buttonlessChar.startNotifications();
+          await buttonlessChar.writeValue(new Uint8Array([0x01]));  // Enter DFU mode
+          triggered = true;
+          addLog('Triggered buttonless DFU');
+        } catch {
+          // Try with bonds
+          try {
+            const dfuService = await server.getPrimaryService(DFU_SERVICE_UUID);
+            const buttonlessChar = await dfuService.getCharacteristic(BUTTONLESS_DFU_UUID);
+            await buttonlessChar.startNotifications();
+            await buttonlessChar.writeValue(new Uint8Array([0x01]));
+            triggered = true;
+            addLog('Triggered buttonless DFU (bonded)');
+          } catch {
+            // No buttonless DFU available
+          }
+        }
+
+        if (triggered) {
+          addLog('Waiting for device to restart in DFU mode...');
+          await new Promise(r => setTimeout(r, 3000));
+          
+          // Reconnect to device (now in DFU mode)
+          addLog('Reconnecting...');
+          server = await device.gatt?.connect();
+          if (!server) throw new Error('Failed to reconnect after DFU trigger');
+          
+          try {
+            service = await server.getPrimaryService(DFU_SERVICE_UUID);
+            addLog('Device is now in DFU mode');
+          } catch {
+            throw new Error('Device did not enter DFU mode. Please try again.');
+          }
+        } else {
+          throw new Error('Could not trigger DFU mode. Your device may need a firmware update via nRF Connect app first.');
+        }
+      }
+
+      if (!service) {
+        throw new Error('No DFU service available');
       }
 
       addLog(`Firmware size: ${firmwareData.length} bytes`);
