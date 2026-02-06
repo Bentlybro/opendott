@@ -60,13 +60,22 @@ class DOTTUploader:
         mtu = self.client.mtu_size or 23
         print(f"Connected! MTU: {mtu}")
         
-        # Enable notifications/indications on trigger characteristic
-        print("Enabling indications on 0x1528...")
-        try:
-            await self.client.start_notify(UUID_TRIGGER, self._notification_handler)
-            print("  OK - Indications enabled")
-        except Exception as e:
-            print(f"  Warning: {e}")
+        # Enable notifications/indications on ALL relevant characteristics
+        chars_to_monitor = [
+            (UUID_TRIGGER, "0x1528 (Trigger)"),
+            (UUID_1530, "0x1530 (Response)"),
+            ("00001529-0000-1000-8000-00805f9b34fb", "0x1529 (Data notify)"),
+            ("00001526-0000-1000-8000-00805f9b34fb", "0x1526 (Command)"),
+            ("00001527-0000-1000-8000-00805f9b34fb", "0x1527 (Status)"),
+        ]
+        
+        print("Enabling notifications on all characteristics...")
+        for uuid, name in chars_to_monitor:
+            try:
+                await self.client.start_notify(uuid, self._notification_handler)
+                print(f"  {name}: OK")
+            except Exception as e:
+                print(f"  {name}: {e}")
             
         await asyncio.sleep(0.2)
         return mtu
@@ -171,16 +180,8 @@ class DOTTUploader:
         print(f"\nData transfer complete: {len(gif_data)} bytes in {elapsed:.2f}s ({rate:.1f} kbps)")
         
         # STEP 4: Wait for completion notification
-        print("\nStep 4: Waiting for device response (3s)...")
-        await asyncio.sleep(3.0)
-        
-        # STEP 5: Post-transfer cleanup (disable indications)
-        print("\nStep 5: Post-transfer cleanup...")
-        try:
-            await self.client.stop_notify(UUID_TRIGGER)
-            print("  Indications disabled")
-        except Exception as e:
-            print(f"  Cleanup: {e}")
+        print("\nStep 4: Waiting for device response (5s)...")
+        await asyncio.sleep(5.0)
         
         print(f"\nNotifications received: {len(self.notifications)}")
         for sender, data, text in self.notifications:
