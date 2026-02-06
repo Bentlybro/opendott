@@ -13,8 +13,8 @@ import { parseGIF, decompressFrames } from 'gifuct-js';
 import GIF from 'gif.js-upgrade';
 
 const TARGET_SIZE = 240;
-const MAX_FRAMES = 15;  // Reduced from 30 - DOTT has strict size limit (~100KB?)
-const MAX_FILE_SIZE = 100 * 1024;  // 100KB target max - larger GIFs won't loop!
+const MAX_FRAMES = 8;   // DOTT has 256KB RAM - can only buffer ~4 frames decoded
+const MAX_FILE_SIZE = 50 * 1024;  // 50KB target - DOTT struggles with large GIFs
 
 // Debug: set to true to skip NETSCAPE injection (for testing if it causes issues)
 const SKIP_NETSCAPE = false;
@@ -163,10 +163,11 @@ export async function convertAnimatedGif(
   const originalWidth = gif.lsd.width;
   const originalHeight = gif.lsd.height;
   
-  // Create encoder with optimized settings for SMALL file size (DOTT has ~100KB limit!)
+  // Create encoder with optimized settings for SMALL file size
+  // DOTT has only 256KB RAM - needs tiny GIFs to loop properly!
   const encoder = new GIF({
     workers: 2,
-    quality: 30,  // Higher = faster/smaller. DOTT needs small files!
+    quality: 50,  // Higher = faster/smaller but lower quality. DOTT needs TINY files!
     width: TARGET_SIZE,
     height: TARGET_SIZE,
     workerScript: '/gif.worker.js',
