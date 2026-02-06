@@ -104,7 +104,6 @@ int button_init(button_callback_t callback)
     /* Initialize work item */
     k_work_init_delayable(&button_work, button_work_handler);
 
-    LOG_INF("Button initialized on GPIO %s pin %d",
-            button.port->name, button.pin);
+    LOG_INF("Button initialized on pin %d", button.pin);
     return 0;
 }

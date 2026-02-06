@@ -1,0 +1,16 @@
+description: OpenDOTT GC9A01 display (direct SPI driver)
+
+compatible: "opendott,gc9a01"
+
+include: spi-device.yaml
+
+properties:
+  cmd-data-gpios:
+    type: phandle-array
+    required: true
+    description: GPIO for command/data selection (DC pin)
+
+  reset-gpios:
+    type: phandle-array
+    required: true
+    description: GPIO for display reset

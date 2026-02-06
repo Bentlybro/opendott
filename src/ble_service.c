@@ -74,15 +74,7 @@ static bool trigger_indicate_enabled = false;
 static bool notify_enabled = false;
 static bool response_notify_enabled = false;
 
-/* Transfer state machine */
-typedef enum {
-    TRANSFER_IDLE,
-    TRANSFER_TRIGGERED,
-    TRANSFER_RECEIVING,
-    TRANSFER_COMPLETE,
-    TRANSFER_FAILED
-} transfer_state_t;
-
+/* Transfer state machine (transfer_state_t defined in opendott.h) */
 static struct {
     transfer_state_t state;
     uint8_t *buffer;

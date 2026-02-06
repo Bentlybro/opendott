@@ -8,6 +8,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/fs/fs.h>
+#include <string.h>
 #include <zephyr/fs/littlefs.h>
 #include <zephyr/storage/flash_map.h>
 #include <zephyr/logging/log.h>
@@ -18,13 +19,13 @@ LOG_MODULE_REGISTER(storage, CONFIG_LOG_DEFAULT_LEVEL);
 
 /* Mount point */
 #define STORAGE_MOUNT_POINT "/lfs"
-#define STORAGE_PARTITION lfs_storage
+#define STORAGE_PARTITION lfs_partition
 #define STORAGE_PARTITION_ID FIXED_PARTITION_ID(STORAGE_PARTITION)
 
 /* LittleFS configuration */
 FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(storage_lfs);
 
-static struct fs_mount_t lfs_mount = {
+static struct fs_mount_t storage_mount_cfg = {
     .type = FS_LITTLEFS,
     .fs_data = &storage_lfs,
     .storage_dev = (void *)STORAGE_PARTITION_ID,
@@ -50,7 +51,7 @@ int storage_init(void)
     flash_area_close(fa);
 
     /* Try to mount */
-    ret = fs_mount(&lfs_mount);
+    ret = fs_mount(&storage_mount_cfg);
     if (ret < 0) {
         LOG_WRN("Mount failed (%d), formatting...", ret);
         
@@ -61,7 +62,7 @@ int storage_init(void)
             return ret;
         }
 
-        ret = fs_mount(&lfs_mount);
+        ret = fs_mount(&storage_mount_cfg);
         if (ret < 0) {
             LOG_ERR("Mount after format failed: %d", ret);
             return ret;
@@ -199,7 +200,7 @@ int storage_format(void)
     LOG_WRN("Formatting storage...");
 
     if (storage_mounted) {
-        fs_unmount(&lfs_mount);
+        fs_unmount(&storage_mount_cfg);
         storage_mounted = false;
     }
 
@@ -209,7 +210,7 @@ int storage_format(void)
         return ret;
     }
 
-    ret = fs_mount(&lfs_mount);
+    ret = fs_mount(&storage_mount_cfg);
     if (ret < 0) {
         LOG_ERR("Mount after format failed: %d", ret);
         return ret;
@@ -218,4 +219,36 @@ int storage_format(void)
     storage_mounted = true;
     LOG_INF("Storage formatted and mounted");
     return 0;
+}
+
+/* Legacy slot-based API for compatibility */
+int storage_save_gif(const uint8_t *data, size_t size, uint8_t slot)
+{
+    char name[16];
+    snprintf(name, sizeof(name), "slot%d.gif", slot);
+    return storage_save_image(data, size, name);
+}
+
+int storage_load_gif(uint8_t *data, size_t max_size, uint8_t slot)
+{
+    char name[16];
+    snprintf(name, sizeof(name), "slot%d.gif", slot);
+    
+    uint8_t *loaded_data = NULL;
+    size_t loaded_size = 0;
+    
+    int ret = storage_load_image(name, &loaded_data, &loaded_size);
+    if (ret < 0) {
+        return ret;
+    }
+    
+    if (loaded_size > max_size) {
+        k_free(loaded_data);
+        return OPENDOTT_ERR_FILE_TOO_LARGE;
+    }
+    
+    memcpy(data, loaded_data, loaded_size);
+    k_free(loaded_data);
+    
+    return (int)loaded_size;
 }

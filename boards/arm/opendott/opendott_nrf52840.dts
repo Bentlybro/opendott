@@ -30,13 +30,14 @@
         zephyr,sram = &sram0;
         zephyr,flash = &flash0;
         zephyr,code-partition = &slot0_partition;
-        zephyr,display = &gc9a01;
+        /* zephyr,display = &gc9a01; -- disabled, using direct SPI */
     };
 
     aliases {
         sw0 = &button0;
         spi-flash0 = &gd25q128;
         display0 = &gc9a01;
+        pwm-led0 = &backlight;
     };
 
     buttons {
@@ -115,15 +116,12 @@
     cs-gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;  /* CS on P0.2 (guess) */
 
     gc9a01: gc9a01@0 {
-        compatible = "galaxycore,gc9x01x";
+        /* Using custom driver instead of Zephyr's due to boolean property bug */
+        compatible = "opendott,gc9a01";
         reg = <0>;
         spi-max-frequency = <32000000>;
         cmd-data-gpios = <&gpio0 4 GPIO_ACTIVE_HIGH>;  /* DC on P0.4 (from firmware) */
         reset-gpios = <&gpio0 3 GPIO_ACTIVE_LOW>;      /* RESET on P0.3 (guess) */
-        pixel-format = <0>;  /* RGB565 */
-        width = <240>;
-        height = <240>;
-        display-inversion;
     };
 };
 
@@ -173,4 +171,18 @@
     cdc_acm_uart0: cdc_acm_uart0 {
         compatible = "zephyr,cdc-acm-uart";
     };
+};
+
+/* Enable GPIOTE for GPIO interrupts */
+&gpiote {
+    status = "okay";
+};
+
+/* Enable GPIO ports */
+&gpio0 {
+    status = "okay";
+};
+
+&gpio1 {
+    status = "okay";
 };

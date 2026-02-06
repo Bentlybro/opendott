@@ -17,6 +17,13 @@
 
 LOG_MODULE_REGISTER(image_handler, CONFIG_LOG_DEFAULT_LEVEL);
 
+/* Forward declarations for static functions */
+static bool validate_gif(const uint8_t *data, size_t size);
+static bool validate_png(const uint8_t *data, size_t size);
+static bool validate_jpeg(const uint8_t *data, size_t size);
+static bool validate_bmp(const uint8_t *data, size_t size);
+static int decode_and_display_gif(const uint8_t *data, size_t size);
+
 /* Magic byte sequences for format detection */
 static const uint8_t gif89a_magic[] = {0x47, 0x49, 0x46, 0x38, 0x39, 0x61}; /* GIF89a */
 static const uint8_t gif87a_magic[] = {0x47, 0x49, 0x46, 0x38, 0x37, 0x61}; /* GIF87a */

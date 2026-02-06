@@ -7,87 +7,40 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
-#include <zephyr/drivers/display.h>
-#include <zephyr/drivers/gpio.h>
 
 #include "opendott.h"
 
 LOG_MODULE_REGISTER(main, CONFIG_LOG_DEFAULT_LEVEL);
 
-/* Display device */
-static const struct device *display_dev;
-
-/* Button */
-static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET_OR(DT_ALIAS(sw0), gpios, {0});
-static struct gpio_callback button_cb_data;
-
-/* GIF receive buffer (allocate from heap or use static) */
-#define GIF_BUFFER_SIZE (256 * 1024)  /* 256KB max GIF size */
+/* GIF receive buffer - reduced to fit in RAM with other allocations */
+#define GIF_BUFFER_SIZE (64 * 1024)  /* 64KB max GIF size */
 static uint8_t gif_buffer[GIF_BUFFER_SIZE];
 
 /* Transfer timeout work */
 static struct k_work_delayable transfer_timeout_work;
 #define TRANSFER_TIMEOUT_MS 3000  /* 3 second timeout after last data */
 
-/* Last data receive time */
-static int64_t last_data_time = 0;
-
 /* Forward declarations */
 static void transfer_timeout_handler(struct k_work *work);
-static void button_pressed(const struct device *dev, struct gpio_callback *cb, uint32_t pins);
+static void button_callback(button_event_t event);
 
-/* Initialize display */
-static int init_display(void)
+/* Button event handler */
+static void button_callback(button_event_t event)
 {
-    display_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
-    
-    if (!device_is_ready(display_dev)) {
-        LOG_ERR("Display device not ready");
-        return -ENODEV;
+    switch (event) {
+    case BUTTON_EVENT_SHORT_PRESS:
+        LOG_INF("Short press - next image");
+        /* TODO: Cycle through stored images */
+        break;
+    case BUTTON_EVENT_MEDIUM_PRESS:
+        LOG_INF("Medium press - toggle mode");
+        /* TODO: Toggle display mode */
+        break;
+    case BUTTON_EVENT_LONG_PRESS:
+        LOG_INF("Long press - entering settings");
+        /* TODO: Enter settings mode */
+        break;
     }
-    
-    LOG_INF("Display initialized: %s", display_dev->name);
-    
-    /* Clear display */
-    display_blanking_off(display_dev);
-    
-    return 0;
-}
-
-/* Initialize button */
-static int init_button(void)
-{
-    if (!gpio_is_ready_dt(&button)) {
-        LOG_WRN("Button device not ready");
-        return -ENODEV;
-    }
-    
-    int err = gpio_pin_configure_dt(&button, GPIO_INPUT);
-    if (err) {
-        LOG_ERR("Failed to configure button: %d", err);
-        return err;
-    }
-    
-    err = gpio_pin_interrupt_configure_dt(&button, GPIO_INT_EDGE_TO_ACTIVE);
-    if (err) {
-        LOG_ERR("Failed to configure button interrupt: %d", err);
-        return err;
-    }
-    
-    gpio_init_callback(&button_cb_data, button_pressed, BIT(button.pin));
-    gpio_add_callback(button.port, &button_cb_data);
-    
-    LOG_INF("Button initialized");
-    
-    return 0;
-}
-
-/* Button press handler */
-static void button_pressed(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
-{
-    LOG_INF("Button pressed!");
-    
-    /* TODO: Cycle through stored GIFs, toggle mode, etc. */
 }
 
 /* Transfer timeout - called when no data received for a while */
@@ -97,59 +50,28 @@ static void transfer_timeout_handler(struct k_work *work)
     
     if (state == TRANSFER_RECEIVING) {
         size_t received = ble_get_received_size();
-        LOG_INF("Transfer timeout, received %u bytes", received);
+        LOG_INF("Transfer timeout, received %zu bytes", received);
         
-        /* Check if we received a complete GIF (ends with 0x3B) */
-        if (received > 0 && gif_buffer[received - 1] == 0x3B) {
-            LOG_INF("GIF trailer found, transfer successful");
-            ble_transfer_complete(true);
-            
-            /* TODO: Save to flash and display */
-            display_gif(gif_buffer, received);
-            
+        /* Validate and display the received image */
+        if (received > 0) {
+            if (image_validate(gif_buffer, received)) {
+                LOG_INF("Image validated successfully");
+                ble_transfer_complete(true);
+                
+                /* Display the image */
+                int ret = image_decode_and_display(gif_buffer, received);
+                if (ret < 0) {
+                    LOG_ERR("Failed to display image: %d", ret);
+                }
+            } else {
+                LOG_ERR("Image validation failed - rejecting upload");
+                ble_transfer_complete(false);
+            }
         } else {
-            LOG_WRN("No GIF trailer, assuming complete anyway");
-            ble_transfer_complete(true);
-            display_gif(gif_buffer, received);
+            LOG_WRN("No data received");
+            ble_transfer_complete(false);
         }
     }
-}
-
-/* Display a GIF on screen */
-void display_gif(const uint8_t *data, size_t size)
-{
-    LOG_INF("Displaying GIF: %u bytes", size);
-    
-    /* TODO: Implement GIF decoder and display
-     * For now, just log that we would display it
-     * 
-     * Steps:
-     * 1. Parse GIF header
-     * 2. Decode frames
-     * 3. Display each frame with timing
-     * 4. Loop if animated
-     */
-    
-    /* Placeholder: fill screen with a color to show it worked */
-    struct display_buffer_descriptor desc = {
-        .buf_size = 240 * 240 * 2,  /* RGB565 */
-        .width = 240,
-        .height = 240,
-        .pitch = 240,
-    };
-    
-    /* Create a simple pattern */
-    static uint16_t frame[240 * 240];
-    for (int y = 0; y < 240; y++) {
-        for (int x = 0; x < 240; x++) {
-            /* Green pattern to show success */
-            frame[y * 240 + x] = 0x07E0;  /* RGB565 green */
-        }
-    }
-    
-    display_write(display_dev, 0, 0, &desc, frame);
-    
-    LOG_INF("Display updated");
 }
 
 /* Main entry point */
@@ -163,15 +85,25 @@ int main(void)
     /* Initialize transfer timeout work */
     k_work_init_delayable(&transfer_timeout_work, transfer_timeout_handler);
     
+    /* Initialize storage */
+    err = storage_init();
+    if (err) {
+        LOG_ERR("Storage init failed: %d", err);
+        /* Continue - we can still receive and display images */
+    }
+    
     /* Initialize display */
-    err = init_display();
+    err = display_init();
     if (err) {
         LOG_ERR("Display init failed: %d", err);
         /* Continue anyway - BLE should still work */
+    } else {
+        /* Clear display to black */
+        display_clear(0x0000);
     }
     
     /* Initialize button */
-    err = init_button();
+    err = button_init(button_callback);
     if (err) {
         LOG_WRN("Button init failed: %d", err);
     }
