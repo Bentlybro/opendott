@@ -203,7 +203,7 @@ function App() {
             </p>
             <div className="flex flex-wrap gap-3">
               <a
-                href="https://discord.gg/fCgHHWMnwt"
+                href="https://discord.com/users/353922987235213313"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#5865F2]/20 text-[#5865F2] text-sm hover:bg-[#5865F2]/30 transition-colors"
