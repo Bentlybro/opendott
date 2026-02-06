@@ -29,6 +29,9 @@ UUID_TRIGGER = "00001528-0000-1000-8000-00805f9b34fb"  # Handle 0x001d - Trigger
 
 CHUNK_DELAY_MS = 5
 
+# Additional characteristics found in btsnoop
+UUID_1530 = "00001530-0000-1000-8000-00805f9b34fb"  # Handle 0x0030 - Response/Control?
+
 
 class DOTTUploader:
     def __init__(self, address):
@@ -95,6 +98,19 @@ class DOTTUploader:
             
         print(f"Chunk size: {chunk_size} bytes")
         
+        # STEP 0: Pre-transfer commands (from btsnoop)
+        # Handle 0x0030 gets 'fc' then '10' before transfer
+        print(f"\nStep 0: Pre-transfer setup...")
+        try:
+            await self.client.write_gatt_char(UUID_1530, bytes([0xfc]), response=False)
+            print("  Wrote 0xfc to 0x1530")
+            await asyncio.sleep(0.05)
+            await self.client.write_gatt_char(UUID_1530, bytes([0x10]), response=False)
+            print("  Wrote 0x10 to 0x1530")
+            await asyncio.sleep(0.1)
+        except Exception as e:
+            print(f"  Pre-transfer commands failed (may be OK): {e}")
+        
         # STEP 1: Send file size as trigger
         size_bytes = struct.pack('<I', len(gif_data))
         print(f"\nStep 1: Sending file size to 0x1528...")
@@ -157,6 +173,14 @@ class DOTTUploader:
         # STEP 4: Wait for completion notification
         print("\nStep 4: Waiting for device response (3s)...")
         await asyncio.sleep(3.0)
+        
+        # STEP 5: Post-transfer cleanup (disable indications)
+        print("\nStep 5: Post-transfer cleanup...")
+        try:
+            await self.client.stop_notify(UUID_TRIGGER)
+            print("  Indications disabled")
+        except Exception as e:
+            print(f"  Cleanup: {e}")
         
         print(f"\nNotifications received: {len(self.notifications)}")
         for sender, data, text in self.notifications:
