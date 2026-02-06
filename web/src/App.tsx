@@ -4,7 +4,7 @@ import { DeviceStatus } from './components/DeviceStatus';
 import { ImageUploader } from './components/ImageUploader';
 
 function App() {
-  const { state, isConnected, isUploading, deviceName, progress, error, connect, disconnect, uploadImage, clearError } = useBle();
+  const { state, isConnected, isUploading, deviceName, progress, error, logs, connect, disconnect, uploadImage, clearError } = useBle();
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -77,7 +77,7 @@ function App() {
         </div>
 
         {/* Image uploader */}
-        <div className="mb-12">
+        <div className="mb-8">
           <h3 className="text-xl font-semibold mb-4">Upload Image</h3>
           <ImageUploader
             isConnected={isConnected}
@@ -86,6 +86,18 @@ function App() {
             onUpload={uploadImage}
           />
         </div>
+
+        {/* Debug log */}
+        {logs.length > 0 && (
+          <div className="mb-12">
+            <h3 className="text-sm font-medium text-zinc-400 mb-2">Transfer Log</h3>
+            <div className="bg-zinc-900 rounded-xl p-4 font-mono text-xs max-h-48 overflow-y-auto border border-zinc-800">
+              {logs.map((line, i) => (
+                <div key={i} className="text-zinc-300">{line}</div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Features */}
         <div className="grid sm:grid-cols-3 gap-6 mb-12">

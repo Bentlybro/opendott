@@ -8,10 +8,12 @@ export interface UseBleReturn {
   deviceName: string | undefined;
   progress: number;
   error: Error | null;
+  logs: string[];
   connect: () => Promise<boolean>;
   disconnect: () => Promise<void>;
   uploadImage: (data: Uint8Array) => Promise<boolean>;
   clearError: () => void;
+  clearLogs: () => void;
 }
 
 export function useBle(): UseBleReturn {
@@ -19,6 +21,7 @@ export function useBle(): UseBleReturn {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<Error | null>(null);
   const [deviceName, setDeviceName] = useState<string | undefined>();
+  const [logs, setLogs] = useState<string[]>([]);
 
   useEffect(() => {
     bleService.setCallbacks({
@@ -43,6 +46,9 @@ export function useBle(): UseBleReturn {
         }
         setProgress(success ? 100 : 0);
       },
+      onLog: (msg) => {
+        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
+      },
     });
 
     return () => {
@@ -52,6 +58,7 @@ export function useBle(): UseBleReturn {
 
   const connect = useCallback(async () => {
     setError(null);
+    setLogs([]);
     return bleService.connect();
   }, []);
 
@@ -70,6 +77,10 @@ export function useBle(): UseBleReturn {
     setError(null);
   }, []);
 
+  const clearLogs = useCallback(() => {
+    setLogs([]);
+  }, []);
+
   return {
     state,
     isConnected: state === 'connected' || state === 'uploading',
@@ -77,9 +88,11 @@ export function useBle(): UseBleReturn {
     deviceName,
     progress,
     error,
+    logs,
     connect,
     disconnect,
     uploadImage,
     clearError,
+    clearLogs,
   };
 }
