@@ -36,22 +36,37 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
       setProcessingStatus('Analyzing...');
       const originalInfo = await validateImage(file);
       
-      // Check if conversion is needed
-      const needsConversion = 
+      // Small GIFs (<50KB) work better raw - our conversion makes them bigger!
+      const isSmallEnough = file.size <= 50 * 1024;
+      const isGif = originalInfo.type === 'gif';
+      const skipConversion = isSmallEnough && isGif;
+      
+      // Check if conversion would normally be needed
+      const wouldNeedConversion = 
         originalInfo.width !== 240 || 
         originalInfo.height !== 240 || 
         !!originalInfo.frameWarning || 
         originalInfo.type !== 'gif';
       
-      // Convert the image
-      setProcessingStatus('Converting...');
-      const convertedData = await processImageForDevice(
-        file,
-        true,
-        (stage, prog) => {
-          setProcessingStatus(`${stage}... ${Math.round(prog)}%`);
-        }
-      );
+      let convertedData: Uint8Array;
+      
+      if (skipConversion) {
+        // Small GIF - send raw for best results
+        setProcessingStatus('Small GIF - using original...');
+        const buffer = await file.arrayBuffer();
+        convertedData = new Uint8Array(buffer);
+        console.log(`Small GIF (${(file.size/1024).toFixed(1)}KB) - using raw file`);
+      } else {
+        // Convert larger files
+        setProcessingStatus('Converting...');
+        convertedData = await processImageForDevice(
+          file,
+          true,
+          (stage, prog) => {
+            setProcessingStatus(`${stage}... ${Math.round(prog)}%`);
+          }
+        );
+      }
       
       // Create a blob URL for the converted data
       const blob = new Blob([convertedData as BlobPart], { type: 'image/gif' });
@@ -94,7 +109,7 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
         convertedData,
         convertedDataUrl,
         convertedSize: convertedData.length,
-        wasConverted: needsConversion,
+        wasConverted: !skipConversion && wouldNeedConversion,
         frameCount,
       });
       setProcessingStatus(null);
@@ -291,15 +306,20 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
             </div>
           </div>
           
-          {/* Conversion summary */}
-          {processedImage.wasConverted && (
+          {/* Status messages */}
+          {processedImage.wasConverted ? (
             <div className="mt-4 p-3 rounded-lg bg-green-500/20 border border-green-500/50 text-green-400 text-sm">
               <strong>Ready to upload!</strong> Image converted to 240×240 with {processedImage.frameCount} full frame{(processedImage.frameCount ?? 0) !== 1 ? 's' : ''}.
               {processedImage.originalInfo.frameCount && processedImage.originalInfo.frameCount > (processedImage.frameCount ?? 0) && (
                 <span className="text-green-300"> (reduced from {processedImage.originalInfo.frameCount} frames)</span>
               )}
             </div>
-          )}
+          ) : processedImage.originalInfo.type === 'gif' && processedImage.convertedSize <= 50 * 1024 ? (
+            <div className="mt-4 p-3 rounded-lg bg-blue-500/20 border border-blue-500/50 text-blue-400 text-sm">
+              <strong>Small GIF detected!</strong> Sending original file unchanged ({(processedImage.convertedSize / 1024).toFixed(1)}KB).
+              Small GIFs work best without conversion.
+            </div>
+          ) : null}
           
           {/* Size warning */}
           {processedImage.convertedSize > 50 * 1024 && (
