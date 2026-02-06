@@ -180,35 +180,22 @@ export async function processImageForDevice(
   const data = new Uint8Array(buffer);
   const type = detectImageType(data);
   
-  // Check if conversion is needed
-  if (type === 'gif' && autoConvert) {
-    const { needsConversion, convertAnimatedGif, convertStaticToGif } = await import('./gifConverter');
-    const check = needsConversion(data);
-    
-    if (check.needs) {
-      onProgress?.('Converting', 0);
-      
-      // Check if animated
-      const isAnimated = isAnimatedGif(data);
-      
-      if (isAnimated) {
-        const result = await convertAnimatedGif(file, (p) => {
-          onProgress?.(p.stage, p.progress);
-        });
-        return result.data;
-      } else {
-        // Static GIF that needs resize
-        return await convertStaticToGif(file);
-      }
-    }
-  } else if ((type === 'png' || type === 'jpeg') && autoConvert) {
-    // Convert static images to GIF
+  // GIFs: ALWAYS send raw - no conversion!
+  // The Python script does this and it works perfectly.
+  // Conversion was breaking looping and tripling file sizes.
+  if (type === 'gif') {
+    console.log(`GIF detected (${data.length} bytes) - sending raw, no conversion`);
+    return data;
+  }
+  
+  // PNG/JPEG: Convert to GIF (required - device only accepts GIF)
+  if ((type === 'png' || type === 'jpeg') && autoConvert) {
     const { convertStaticToGif } = await import('./gifConverter');
-    onProgress?.('Converting', 50);
+    onProgress?.('Converting to GIF', 50);
     return await convertStaticToGif(file);
   }
   
-  // Return raw data if no conversion needed
+  // Return raw data for anything else
   return data;
 }
 

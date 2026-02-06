@@ -36,15 +36,17 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
       setProcessingStatus('Analyzing...');
       const originalInfo = await validateImage(file);
       
-      // Check if conversion is needed
-      const needsConversion = 
-        originalInfo.width !== 240 || 
-        originalInfo.height !== 240 || 
-        !!originalInfo.frameWarning || 
-        originalInfo.type !== 'gif';
+      // GIFs: send raw (no conversion - this is what works!)
+      // PNG/JPEG: convert to GIF
+      const isGif = originalInfo.type === 'gif';
+      const needsConversion = !isGif;  // Only non-GIFs need conversion
       
-      // Convert the image
-      setProcessingStatus('Converting...');
+      // Process the image (GIFs pass through raw, others convert)
+      if (needsConversion) {
+        setProcessingStatus('Converting to GIF...');
+      } else {
+        setProcessingStatus('Preparing...');
+      }
       const convertedData = await processImageForDevice(
         file,
         true,
@@ -291,13 +293,14 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
             </div>
           </div>
           
-          {/* Conversion summary */}
-          {processedImage.wasConverted && (
+          {/* Status message */}
+          {processedImage.wasConverted ? (
+            <div className="mt-4 p-3 rounded-lg bg-blue-500/20 border border-blue-500/50 text-blue-400 text-sm">
+              <strong>Converted!</strong> PNG/JPEG converted to GIF format for device compatibility.
+            </div>
+          ) : (
             <div className="mt-4 p-3 rounded-lg bg-green-500/20 border border-green-500/50 text-green-400 text-sm">
-              <strong>Ready to upload!</strong> Image converted to 240×240 with {processedImage.frameCount} full frame{(processedImage.frameCount ?? 0) !== 1 ? 's' : ''}.
-              {processedImage.originalInfo.frameCount && processedImage.originalInfo.frameCount > (processedImage.frameCount ?? 0) && (
-                <span className="text-green-300"> (reduced from {processedImage.originalInfo.frameCount} frames)</span>
-              )}
+              <strong>Ready!</strong> GIF will be sent as-is ({formatFileSize(processedImage.convertedSize)}, {processedImage.frameCount} frame{(processedImage.frameCount ?? 0) !== 1 ? 's' : ''}).
             </div>
           )}
           
