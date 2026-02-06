@@ -1,8 +1,5 @@
 # OpenDOTT Board Configuration
-
-CONFIG_SOC_SERIES_NRF52X=y
-CONFIG_SOC_NRF52840_QIAA=y
-CONFIG_BOARD_OPENDOTT=y
+# Note: SOC/board selection is automatic via board.yml in Zephyr 3.7.0 HWMv2
 
 # Enable MPU
 CONFIG_ARM_MPU=y

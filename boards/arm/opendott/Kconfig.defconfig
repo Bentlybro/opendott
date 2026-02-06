@@ -1,8 +1,9 @@
-# OpenDOTT board defconfig
+# OpenDOTT nRF52840 board defconfig
+# SPDX-License-Identifier: MIT
 
 if BOARD_OPENDOTT
 
-config BOARD
-	default "opendott"
+config BT_CTLR
+	default BT
 
 endif # BOARD_OPENDOTT

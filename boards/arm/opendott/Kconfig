@@ -1,0 +1,11 @@
+# OpenDOTT board configuration
+# SPDX-License-Identifier: MIT
+
+if BOARD_OPENDOTT
+
+config BOARD_ENABLE_DCDC
+	bool "DCDC mode"
+	select SOC_DCDC_NRF52X
+	default y
+
+endif # BOARD_OPENDOTT

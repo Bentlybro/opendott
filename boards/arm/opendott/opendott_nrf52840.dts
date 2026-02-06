@@ -18,7 +18,7 @@
 
 /dts-v1/;
 #include <nordic/nrf52840_qiaa.dtsi>
-#include "opendott-pinctrl.dtsi"
+#include "opendott_nrf52840-pinctrl.dtsi"
 
 / {
     model = "OpenDOTT Wearable Display";
@@ -170,9 +170,6 @@
 /* USB CDC for console/debug */
 &usbd {
     status = "okay";
-};
-
-&zephyr_udc0 {
     cdc_acm_uart0: cdc_acm_uart0 {
         compatible = "zephyr,cdc-acm-uart";
     };
