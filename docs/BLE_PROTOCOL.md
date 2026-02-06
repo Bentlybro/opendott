@@ -148,11 +148,41 @@ delay = min(50 * 2^(retryCount-1), 1000)ms
 
 ## GIF Requirements
 
-From firmware analysis:
+From firmware analysis and testing:
 - **Format:** GIF89a or GIF87a (magic bytes)
 - **Dimensions:** 240x240 pixels (display size)
 - **Trailer:** Must end with 0x3B (GIF trailer)
 - **Max size:** Unknown, but 16MB flash available
+- **⚠️ CRITICAL: Full frames only!** The device does NOT support delta/optimized GIFs.
+  Each frame must be a complete 240x240 image, not a partial update patch.
+  
+### GIF Optimization Warning
+
+Many GIF tools (ezgif, Photoshop, etc.) create "optimized" GIFs where only changed pixels
+are stored in subsequent frames. The DOTT firmware cannot decode these!
+
+**Bad (won't animate):**
+```
+Frame 0: 240x240 (full)
+Frame 1: 25x8 at (107,118)  ← PARTIAL FRAME - won't work!
+Frame 2: 25x8 at (107,118)
+```
+
+**Good (will animate):**
+```
+Frame 0: 240x240 (full)
+Frame 1: 240x240 (full)  ← COMPLETE FRAME - works!
+Frame 2: 240x240 (full)
+```
+
+To convert an optimized GIF to full frames, use:
+```bash
+# Using gifsicle
+gifsicle --unoptimize input.gif -o output.gif
+
+# Using ffmpeg
+ffmpeg -i input.gif -vf "scale=240:240" -loop 0 output.gif
+```
 
 ## DFU (Firmware Update)
 

@@ -29,6 +29,68 @@ UUID_TRIGGER = "00001528-0000-1000-8000-00805f9b34fb"  # Handle 0x001d - Trigger
 
 CHUNK_DELAY_MS = 5
 
+
+def validate_gif_frames(data):
+    """
+    Check if GIF has full frames (required for DOTT).
+    Returns (is_valid, message)
+    """
+    if len(data) < 13:
+        return False, "File too small"
+    
+    if data[:6] not in (b'GIF87a', b'GIF89a'):
+        return False, "Not a valid GIF"
+    
+    # Parse GIF to check frame sizes
+    width = data[6] | (data[7] << 8)
+    height = data[8] | (data[9] << 8)
+    
+    pos = 13
+    if data[10] & 0x80:  # Global color table
+        gct_size = 3 * (2 ** ((data[10] & 0x07) + 1))
+        pos += gct_size
+    
+    frames = []
+    while pos < len(data) - 1:
+        if data[pos] == 0x21:  # Extension
+            if data[pos+1] == 0xF9:  # GCE
+                pos += 8
+            else:
+                pos += 2
+                while pos < len(data) and data[pos] != 0:
+                    pos += data[pos] + 1
+                pos += 1
+        elif data[pos] == 0x2C:  # Image descriptor
+            fw = data[pos+5] | (data[pos+6] << 8)
+            fh = data[pos+7] | (data[pos+8] << 8)
+            frames.append((fw, fh))
+            
+            pos += 10
+            if data[pos-1] & 0x80:  # Local color table
+                pos += 3 * (2 ** ((data[pos-1] & 0x07) + 1))
+            pos += 1  # LZW min code size
+            while pos < len(data) and data[pos] != 0:
+                pos += data[pos] + 1
+            pos += 1
+        elif data[pos] == 0x3B:  # Trailer
+            break
+        else:
+            pos += 1
+    
+    # Check if all frames are full size
+    partial_frames = [(i, f) for i, f in enumerate(frames) if f != (width, height)]
+    
+    if partial_frames:
+        msg = f"WARNING: GIF has {len(partial_frames)} partial frame(s)!\n"
+        msg += f"  Canvas: {width}x{height}\n"
+        for i, (fw, fh) in partial_frames[:3]:
+            msg += f"  Frame {i}: {fw}x{fh} (PARTIAL - won't animate!)\n"
+        msg += "  DOTT requires full frames. Use 'gifsicle --unoptimize' to fix."
+        return False, msg
+    
+    return True, f"Valid: {len(frames)} full {width}x{height} frames"
+
+
 # Additional characteristics found in btsnoop
 UUID_1530 = "00001530-0000-1000-8000-00805f9b34fb"  # Handle 0x0030 - Response/Control?
 
@@ -221,6 +283,17 @@ async def main():
         print("WARNING: Not a valid GIF file!")
     if gif_data[-1:] != b'\x3b':
         print("WARNING: GIF doesn't end with 0x3B trailer!")
+    
+    # Check for full frames (critical for DOTT!)
+    is_valid, msg = validate_gif_frames(gif_data)
+    if is_valid:
+        print(f"GIF validation: {msg}")
+    else:
+        print(f"\n⚠️  {msg}\n")
+        resp = input("Upload anyway? (y/N): ").strip().lower()
+        if resp != 'y':
+            print("Aborted.")
+            return
         
     # Get device address
     address = sys.argv[2] if len(sys.argv) > 2 else None
