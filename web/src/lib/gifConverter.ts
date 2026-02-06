@@ -13,9 +13,9 @@ import { parseGIF, decompressFrames } from 'gifuct-js';
 import GIF from 'gif.js-upgrade';
 
 const TARGET_SIZE = 240;
-const MAX_FRAMES = 8;   // DOTT has 256KB RAM - can only buffer ~4 frames decoded
+const MAX_FRAMES = 6;   // DOTT has 256KB RAM - keep it minimal
 const MAX_FILE_SIZE = 50 * 1024;  // 50KB target - DOTT struggles with large GIFs
-const POSTERIZE_LEVELS = 32;  // Reduce colors by quantizing to N levels per channel
+const POSTERIZE_LEVELS = 16;  // Very aggressive color reduction for smaller files
 
 /**
  * Posterize canvas to reduce colors (helps with GIF compression)
@@ -186,12 +186,13 @@ export async function convertAnimatedGif(
   // DOTT has only 256KB RAM - needs tiny GIFs to loop properly!
   const encoder = new GIF({
     workers: 2,
-    quality: 50,  // Higher = faster/smaller but lower quality. DOTT needs TINY files!
+    quality: 100,  // Max = fastest/smallest. Quality doesn't matter much after posterization.
     width: TARGET_SIZE,
     height: TARGET_SIZE,
     workerScript: '/gif.worker.js',
     dither: false,  // Disable dithering for cleaner output and smaller size
     repeat: 0,  // 0 = infinite loop, -1 = no repeat, N = repeat N times
+    globalPalette: true,  // Use same palette for all frames (smaller file)
   });
   
   // Create canvas for compositing
