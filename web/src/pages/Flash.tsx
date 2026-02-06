@@ -427,6 +427,19 @@ export function FlashPage() {
             </details>
           </div>
         )}
+
+        {/* Footer */}
+        <footer className="mt-12 pt-6 border-t border-zinc-800 text-center text-zinc-500 text-sm">
+          <p>
+            OpenDOTT — Open-source software.{' '}
+            <a href="https://github.com/Bentlybro/opendott" className="text-blue-400 hover:underline">
+              View on GitHub
+            </a>
+          </p>
+          <p className="text-xs text-zinc-600 mt-1">
+            Build: {__BUILD_TIME__}
+          </p>
+        </footer>
       </div>
     </div>
   );
