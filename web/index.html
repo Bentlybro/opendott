@@ -7,6 +7,17 @@
     <meta name="description" content="Open-source firmware and web tools for the DOTT wearable display" />
     <meta name="theme-color" content="#000000" />
     <title>OpenDOTT - Control Your DOTT Wearable</title>
+    <script>
+      // Handle GitHub Pages SPA redirect (from 404.html)
+      // Must run BEFORE React loads to fix the URL
+      (function() {
+        var params = new URLSearchParams(window.location.search);
+        var path = params.get('p');
+        if (path) {
+          window.history.replaceState(null, '', path);
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
