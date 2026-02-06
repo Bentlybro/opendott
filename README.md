@@ -73,4 +73,4 @@ MIT License - See [LICENSE](LICENSE)
 
 ## 🙏 Credits
 
-Reverse engineering and firmware by the community. Original DOTT device by Bott.
+Reverse engineering and firmware by the community.
