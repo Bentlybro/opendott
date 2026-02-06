@@ -296,14 +296,29 @@ export class SMPClient {
     
     this.log(`Found ${images.length} image(s) in response`);
     
-    return images.map(img => ({
-      slot: img['slot'] as number,
-      version: img['version'] as string,
-      hash: img['hash'] as Uint8Array,
-      active: img['active'] as boolean,
-      pending: img['pending'] as boolean,
-      confirmed: img['confirmed'] as boolean,
-    }));
+    return images.map((img, idx) => {
+      const rawHash = img['hash'];
+      let hash: Uint8Array;
+      
+      // Ensure we have a proper Uint8Array copy (not a view)
+      if (rawHash instanceof Uint8Array) {
+        hash = new Uint8Array(rawHash);  // Make a copy
+        console.log(`[SMP] Slot ${idx} hash from device (${hash.length} bytes):`, 
+          Array.from(hash).map(b => b.toString(16).padStart(2, '0')).join(''));
+      } else {
+        console.log(`[SMP] Slot ${idx} hash is not Uint8Array:`, typeof rawHash, rawHash);
+        hash = new Uint8Array(32);  // Empty fallback
+      }
+      
+      return {
+        slot: img['slot'] as number,
+        version: img['version'] as string,
+        hash,
+        active: img['active'] as boolean,
+        pending: img['pending'] as boolean,
+        confirmed: img['confirmed'] as boolean,
+      };
+    });
   }
 
   async uploadImage(firmware: Uint8Array, onProgress?: (percent: number) => void): Promise<{ success: boolean; hash: Uint8Array | null }> {
