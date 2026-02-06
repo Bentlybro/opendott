@@ -1,138 +1,125 @@
-# OpenDOTT 🎨
+# OpenDOTT 🎯
 
-**Open source firmware for the DOTT wearable display.**
+**Open-source tools for the DOTT wearable display**
 
-*Because uploading a PNG shouldn't brick your device.*
+Upload custom GIFs to your DOTT badge without the official app!
 
----
+![DOTT Device](https://weardott.com/images/dott-device.png)
 
-## What is DOTT?
+## Features
 
-DOTT is a small wearable display (badge) that shows animated GIFs. It was a [Kickstarter project](https://www.kickstarter.com/projects/weardott/dott-a-wearable-for-gifs-videos-and-qr-codes) that shipped with... let's say "fragile" firmware.
+- ✅ **Working upload tool** - Python CLI for uploading GIFs
+- ✅ **Full protocol documentation** - Completely reverse-engineered
+- ✅ **GIF validation** - Prevents bricking from invalid files
+- 🚧 **Custom firmware** - Coming soon!
 
-**Problems with the original firmware:**
-- 🐌 GIF playback is laggy
-- 💀 Uploading any non-GIF file **permanently bricks the device**
-- 🚫 No recovery mechanism
-- 🤷 No input validation whatsoever
+## Quick Start
 
-This project aims to create a **proper** open source replacement.
+### Requirements
+
+- Python 3.8+
+- Bluetooth LE support
+- DOTT wearable device
+
+### Installation
+
+```bash
+git clone https://github.com/Bentlybro/opendott.git
+cd opendott/tools
+pip install bleak
+```
+
+### Upload a GIF
+
+```bash
+# Scan for devices
+python dott_upload.py scan
+
+# Upload an image
+python dott_upload.py test_image.gif
+
+# Or specify device address
+python dott_upload.py -a E2:E2:B4:44:D5:30 test_image.gif
+```
+
+## GIF Requirements
+
+| Property | Requirement |
+|----------|-------------|
+| Format | GIF87a or GIF89a |
+| Dimensions | 240x240 pixels |
+| Animation | Supported |
+
+## Protocol Overview
+
+The DOTT uses a simple BLE protocol:
+
+1. **Trigger** - Write `0x00401000` to characteristic 0x1528
+2. **Wait** - Device responds with `0xFFFFFFFF` when ready
+3. **Stream** - Send raw GIF bytes to characteristic 0x1525
+4. **Done** - Device responds "Transfer Complete"
+
+See [docs/PROTOCOL.md](docs/PROTOCOL.md) for the full specification.
 
 ## Hardware
 
-| Component | Part | Specs |
-|-----------|------|-------|
-| MCU | nRF52840 | ARM Cortex-M4F, 64MHz, 1MB Flash, 256KB RAM, BLE 5.0 |
-| Display | GC9A01 | 240x240 round IPS LCD, SPI interface |
-| Storage | GD25Q128 | 16MB QSPI NOR flash |
-| Interface | USB-C | CDC-ACM serial + charging |
-
-## Features (Planned)
-
-- [x] Basic display driver
-- [ ] GIF playback (smooth, double-buffered)
-- [ ] PNG support (static images)
-- [ ] JPEG support (static images)
-- [ ] BLE image transfer with **proper validation**
-- [ ] USB mass storage mode
-- [ ] Web-based companion app
-- [ ] Factory reset (long press)
-- [ ] OTA firmware updates
-- [ ] Battery level reporting
-- [ ] Multiple image slots
-
-## Building
-
-### Prerequisites
-
-- [Zephyr SDK](https://docs.zephyrproject.org/latest/develop/getting_started/index.html)
-- nRF Connect SDK (optional, for full Nordic tooling)
-- Python 3.8+
-
-### Setup
-
-```bash
-# Clone the repo
-git clone https://github.com/Bentlybro/opendott.git
-cd opendott
-
-# Set up Zephyr workspace (if not already done)
-west init -l .
-west update
-
-# Build
-west build -b opendott
-
-# Flash (requires J-Link or compatible debugger)
-west flash
-```
-
-### Flashing via USB (DFU)
-
-The original bootloader supports USB DFU. You can flash without a debugger:
-
-```bash
-# Put device in DFU mode (hold button while connecting USB)
-nrfutil dfu usb-serial -pkg opendott.zip -p /dev/ttyACM0
-```
+| Component | Part |
+|-----------|------|
+| MCU | nRF52840 |
+| Display | GC9A01 (240x240 round LCD) |
+| Flash | GD25Q128 (16MB) |
+| RTOS | Zephyr v3.7.0 |
 
 ## Project Structure
 
 ```
 opendott/
-├── src/
-│   ├── main.c              # Application entry point
-│   ├── display.c           # GC9A01 display driver
-│   ├── storage.c           # External flash + filesystem
-│   ├── ble_service.c       # Custom BLE GATT service
-│   ├── image_handler.c     # Image validation & decoding
-│   └── button.c            # Button input handling
-├── boards/arm/opendott/    # Board definition
-├── docs/                   # Documentation
-├── CMakeLists.txt
-├── prj.conf                # Kconfig
-└── Kconfig
+├── tools/           # Python upload tools
+│   ├── dott_upload.py      # Main upload tool
+│   └── test_image.gif      # Test GIF
+├── docs/            # Documentation
+│   ├── PROTOCOL.md         # BLE protocol spec
+│   ├── HARDWARE.md         # Hardware details
+│   └── ROADMAP.md          # Future plans
+├── src/             # Firmware source (WIP)
+└── boards/          # Zephyr board definitions
 ```
 
-## BLE Protocol
+## Roadmap
 
-### Service UUID
-`TBD` - Will be documented after BLE sniffing
+See [docs/ROADMAP.md](docs/ROADMAP.md) for planned features:
 
-### Characteristics
-| Name | UUID | Properties | Description |
-|------|------|------------|-------------|
-| Image Transfer | TBD | Write | Chunked image upload |
-| Transfer Control | TBD | Write/Notify | Start/stop/status |
-| Device Info | TBD | Read | Battery, version, etc |
+- 📱 Mobile app
+- 🖥️ Desktop GUI
+- ⚡ Auto-conversion from PNG/JPEG
+- 🔧 Custom firmware with new features
+- ⏰ Clock mode, notifications, and more!
 
-## Why Not Just Fix the Original?
+## Why This Exists
 
-The original firmware has fundamental architectural issues:
-- No input validation before flash writes
-- No error recovery paths  
-- Tightly coupled components
-- No proper state machine
+The official DOTT app works fine, but:
+- No desktop support
+- Can't automate uploads
+- Uploading non-GIF files can brick the device!
 
-It's easier (and more fun) to write it properly from scratch.
+This project provides safe, open-source alternatives.
 
 ## Contributing
 
 Contributions welcome! Areas that need help:
-- BLE protocol reverse engineering (sniffing the original app)
-- GIF decoder optimization
-- Companion app development
-- Hardware documentation
-
-## License
-
-MIT License - Do whatever you want with it.
+- GUI applications
+- Mobile apps
+- Firmware development
+- Testing on different platforms
 
 ## Credits
 
-- Reverse engineering & firmware analysis: [@Bentlybro](https://github.com/Bentlybro) + Orion 🤖
-- Original hardware: DOTT team (we're just making it actually work)
+Reverse engineered by **Bently** and **Orion** 🌟
+
+## License
+
+MIT - See [LICENSE](LICENSE)
 
 ---
 
-*"You had one job: display a GIF without bricking. ONE JOB."*
+*Not affiliated with DOTT/weardott. Use at your own risk.*
