@@ -4,7 +4,7 @@ import { DeviceStatus } from './components/DeviceStatus';
 import { ImageUploader } from './components/ImageUploader';
 
 function App() {
-  const { state, isConnected, isUploading, deviceName, deviceInfo, progress, error, logs, connect, disconnect, uploadImage, clearError } = useBle();
+  const { state, isConnected, isUploading, needsUpdate, deviceName, deviceInfo, progress, error, logs, connect, disconnect, uploadImage, clearError } = useBle();
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -63,6 +63,39 @@ function App() {
             <button onClick={clearError} className="text-red-300 hover:text-white">
               ✕
             </button>
+          </div>
+        )}
+
+        {/* Firmware update needed */}
+        {needsUpdate && (
+          <div className="mb-8 p-6 rounded-xl bg-gradient-to-br from-yellow-500/20 to-orange-500/20 border border-yellow-500/50">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-xl bg-yellow-500/30 flex items-center justify-center flex-shrink-0">
+                <Zap className="w-6 h-6 text-yellow-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-xl font-bold text-yellow-400 mb-2">Firmware Update Required</h3>
+                <p className="text-yellow-200/80 mb-4">
+                  Your DOTT {deviceName && `(${deviceName})`} needs a firmware update before you can upload images. 
+                  This only takes a minute!
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <a
+                    href="/flash"
+                    className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-yellow-500 text-black font-bold hover:bg-yellow-400 transition-colors"
+                  >
+                    <Zap className="w-5 h-5" />
+                    Update Firmware
+                  </a>
+                  <button
+                    onClick={disconnect}
+                    className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-zinc-800 text-white font-medium hover:bg-zinc-700 transition-colors"
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

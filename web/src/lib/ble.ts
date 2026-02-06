@@ -135,7 +135,7 @@ export function validateGifFrames(data: Uint8Array): { valid: boolean; message: 
   };
 }
 
-export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'uploading';
+export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'uploading' | 'needs_update';
 
 export interface DeviceInfo {
   batteryLevel?: number;  // 0-100
@@ -247,10 +247,9 @@ class DottBleService {
       this.log('Scanning...');
       this.reconnectAttempts = 0;
 
-      // Request device with DOTT service
+      // Request device - accept any DOTT device (with or without new firmware)
       this.device = await navigator.bluetooth.requestDevice({
         filters: [
-          { services: [DOTT_SERVICE_UUID] },
           { namePrefix: 'Dott' }
         ],
         optionalServices: [DOTT_SERVICE_UUID, BATTERY_SERVICE_UUID, DEVICE_INFO_SERVICE_UUID]
@@ -295,8 +294,18 @@ class DottBleService {
       this.mtu = DEFAULT_MTU;
       this.log(`Connected, MTU: ${this.mtu}`);
 
-      // Get DOTT service
-      this.service = await this.server.getPrimaryService(DOTT_SERVICE_UUID);
+      // Try to get DOTT service - if not found, device needs firmware update
+      try {
+        this.service = await this.server.getPrimaryService(DOTT_SERVICE_UUID);
+      } catch (e) {
+        const errMsg = (e as Error).message.toLowerCase();
+        if (errMsg.includes('no services matching uuid') || errMsg.includes('not found')) {
+          this.log('DOTT service not found - device needs firmware update');
+          this.setState('needs_update');
+          return false;
+        }
+        throw e;
+      }
 
       // Get characteristics (same as Python: UUID_1525 for data, UUID_1528 for trigger)
       this.dataChar = await this.service.getCharacteristic(UUID_1525);

@@ -5,6 +5,7 @@ export interface UseBleReturn {
   state: ConnectionState;
   isConnected: boolean;
   isUploading: boolean;
+  needsUpdate: boolean;
   deviceName: string | undefined;
   deviceInfo: DeviceInfo | null;
   progress: number;
@@ -103,6 +104,7 @@ export function useBle(): UseBleReturn {
     state,
     isConnected: state === 'connected' || state === 'uploading',
     isUploading: state === 'uploading',
+    needsUpdate: state === 'needs_update',
     deviceName,
     deviceInfo,
     progress,
