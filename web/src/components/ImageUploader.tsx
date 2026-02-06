@@ -39,7 +39,7 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
     
     // Hard file size limit
     if (file.size > HARD_LIMIT_KB * 1024) {
-      setError(`File too large (${Math.round(file.size / 1024)}KB). Maximum is ${HARD_LIMIT_KB}KB. Please optimize your GIF first — try ezgif.com/optimize`);
+      setError(`File too large (${Math.round(file.size / 1024)}KB). Maximum is ${HARD_LIMIT_KB}KB. Try a shorter or simpler GIF.`);
       return;
     }
     
@@ -386,18 +386,18 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
             </div>
           )}
           
-          {/* Size warning with optimization options */}
+          {/* Size warning with optimization */}
           {processedImage.convertedSize > WARN_LIMIT_KB * 1024 && (
             <div className="mt-4 p-3 rounded-lg bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 text-sm">
               <strong>Warning:</strong> File is {Math.round(processedImage.convertedSize / 1024)}KB. 
               GIFs over ~{WARN_LIMIT_KB}KB may not loop properly on DOTT.
               
-              <div className="mt-3 flex flex-wrap gap-2">
+              <div className="mt-3">
                 <button
                   onClick={handleOptimize}
                   disabled={isOptimizing}
                   className={cn(
-                    "px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2",
+                    "px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2",
                     "bg-purple-500 text-white hover:bg-purple-600 transition-colors",
                     isOptimizing && "opacity-50 cursor-not-allowed"
                   )}
@@ -410,19 +410,10 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
                   ) : (
                     <>
                       <Sparkles className="w-4 h-4" />
-                      Auto-Optimize
+                      Optimize Now
                     </>
                   )}
                 </button>
-                
-                <a 
-                  href="https://ezgif.com/optimize" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="px-3 py-1.5 rounded-lg text-sm font-medium bg-zinc-700 text-zinc-300 hover:bg-zinc-600 transition-colors"
-                >
-                  Use ezgif.com
-                </a>
               </div>
             </div>
           )}
