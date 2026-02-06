@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Upload, AlertTriangle, Loader2, Check, ArrowLeft, RefreshCw, Download } from 'lucide-react';
+import { Upload, AlertTriangle, Loader2, Check, ArrowLeft, RefreshCw, Download, ChevronRight, ChevronDown, Settings } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 // Nordic Secure DFU Service (when device is in DFU mode)
@@ -360,16 +360,18 @@ export function FlashPage() {
             </button>
 
             {/* Advanced Options */}
-            <div className="mt-8">
+            <div className="mt-8 border-t border-zinc-800 pt-6">
               <button
                 onClick={() => setShowAdvanced(!showAdvanced)}
-                className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+                className="flex items-center gap-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
               >
-                {showAdvanced ? '▼' : '▶'} Advanced Options
+                {showAdvanced ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                <Settings className="w-4 h-4" />
+                Advanced Options
               </button>
               
               {showAdvanced && (
-                <div className="mt-4 p-4 rounded-xl bg-zinc-900 border border-zinc-800">
+                <div className="mt-4 p-4 rounded-xl bg-zinc-900/50 border border-zinc-800">
                   <div className="mb-4">
                     <label className="block mb-2 text-sm font-medium text-zinc-400">Custom Firmware (.bin)</label>
                     <div className="relative">
@@ -380,17 +382,18 @@ export function FlashPage() {
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                       />
                       <div className={cn(
-                        "p-3 rounded-lg border-2 border-dashed text-center text-sm transition-colors",
-                        customFirmware ? "border-green-500 bg-green-500/10" : "border-zinc-700 hover:border-zinc-500"
+                        "p-3 rounded-lg border border-dashed text-center text-sm transition-colors",
+                        customFirmware ? "border-green-500/50 bg-green-500/10" : "border-zinc-700 hover:border-zinc-600"
                       )}>
                         {customFirmware ? (
-                          <div className="text-green-400">
+                          <div className="text-green-400 flex items-center justify-center gap-2">
+                            <Check className="w-4 h-4" />
                             {customFirmware.name} ({(customFirmware.size / 1024).toFixed(1)} KB)
                           </div>
                         ) : (
-                          <div className="text-zinc-500">
-                            <Upload className="w-4 h-4 inline mr-2" />
-                            Select custom firmware
+                          <div className="text-zinc-500 flex items-center justify-center gap-2">
+                            <Upload className="w-4 h-4" />
+                            Select custom firmware file
                           </div>
                         )}
                       </div>
@@ -398,17 +401,18 @@ export function FlashPage() {
                     {customFirmware && (
                       <button
                         onClick={() => { setCustomFirmware(null); setUseCustomFirmware(false); }}
-                        className="mt-2 text-xs text-zinc-500 hover:text-zinc-300"
+                        className="mt-2 text-xs text-zinc-500 hover:text-zinc-300 flex items-center gap-1"
                       >
-                        ✕ Use official firmware instead
+                        <ArrowLeft className="w-3 h-3" />
+                        Use official firmware instead
                       </button>
                     )}
                   </div>
 
                   {/* Warning */}
-                  <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-sm">
-                    <AlertTriangle className="w-4 h-4 inline mr-2" />
-                    Custom firmware can brick your device if it's not compatible.
+                  <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-500/80 text-sm flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <span>Custom firmware can brick your device if it's not compatible.</span>
                   </div>
                 </div>
               )}
