@@ -29,19 +29,13 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
   const [isOptimizing, setIsOptimizing] = useState(false);
 
   // Limits
-  const HARD_LIMIT_KB = 500;  // Block files over this
-  const WARN_LIMIT_KB = 50;   // Warn about files over this
+  const UPLOAD_LIMIT_KB = 100;  // Warn if over this after optimization
+  const WARN_LIMIT_KB = 50;     // Show optimize button if over this
 
   const handleFile = useCallback(async (file: File) => {
     setError(null);
     setUploadSuccess(false);
     setProcessedImage(null);
-    
-    // Hard file size limit
-    if (file.size > HARD_LIMIT_KB * 1024) {
-      setError(`File too large (${Math.round(file.size / 1024)}KB). Maximum is ${HARD_LIMIT_KB}KB. Try a shorter or simpler GIF.`);
-      return;
-    }
     
     try {
       // First validate and get original info
@@ -388,9 +382,17 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
           
           {/* Size warning with optimization */}
           {processedImage.convertedSize > WARN_LIMIT_KB * 1024 && (
-            <div className="mt-4 p-3 rounded-lg bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 text-sm">
-              <strong>Warning:</strong> File is {Math.round(processedImage.convertedSize / 1024)}KB. 
-              GIFs over ~{WARN_LIMIT_KB}KB may not loop properly on DOTT.
+            <div className={cn(
+              "mt-4 p-3 rounded-lg text-sm",
+              processedImage.convertedSize > UPLOAD_LIMIT_KB * 1024
+                ? "bg-orange-500/20 border border-orange-500/50 text-orange-400"
+                : "bg-yellow-500/20 border border-yellow-500/50 text-yellow-400"
+            )}>
+              <strong>{processedImage.convertedSize > UPLOAD_LIMIT_KB * 1024 ? 'Large file:' : 'Tip:'}</strong>{' '}
+              File is {Math.round(processedImage.convertedSize / 1024)}KB. 
+              {processedImage.convertedSize > UPLOAD_LIMIT_KB * 1024 
+                ? ' This may not work on DOTT. Try optimizing first!'
+                : ' Smaller files work more reliably.'}
               
               <div className="mt-3">
                 <button
