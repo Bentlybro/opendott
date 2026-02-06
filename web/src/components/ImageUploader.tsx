@@ -301,6 +301,14 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
             </div>
           )}
           
+          {/* Size warning */}
+          {processedImage.convertedSize > 100 * 1024 && (
+            <div className="mt-4 p-3 rounded-lg bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 text-sm">
+              <strong>Warning:</strong> File is {Math.round(processedImage.convertedSize / 1024)}KB. 
+              DOTT may not loop GIFs over ~100KB. Try a simpler animation with fewer frames.
+            </div>
+          )}
+          
           {/* Progress bar */}
           {isUploading && (
             <div className="mt-4 h-2 bg-zinc-800 rounded-full overflow-hidden">

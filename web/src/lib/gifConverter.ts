@@ -13,7 +13,8 @@ import { parseGIF, decompressFrames } from 'gifuct-js';
 import GIF from 'gif.js-upgrade';
 
 const TARGET_SIZE = 240;
-const MAX_FRAMES = 30;  // Limit frame count to keep file size reasonable
+const MAX_FRAMES = 15;  // Reduced from 30 - DOTT has strict size limit (~100KB?)
+const MAX_FILE_SIZE = 100 * 1024;  // 100KB target max - larger GIFs won't loop!
 
 // Debug: set to true to skip NETSCAPE injection (for testing if it causes issues)
 const SKIP_NETSCAPE = false;
@@ -162,14 +163,14 @@ export async function convertAnimatedGif(
   const originalWidth = gif.lsd.width;
   const originalHeight = gif.lsd.height;
   
-  // Create encoder with optimized settings for smaller file size
+  // Create encoder with optimized settings for SMALL file size (DOTT has ~100KB limit!)
   const encoder = new GIF({
     workers: 2,
-    quality: 20,  // Higher = faster but larger. 10-20 is good balance.
+    quality: 30,  // Higher = faster/smaller. DOTT needs small files!
     width: TARGET_SIZE,
     height: TARGET_SIZE,
     workerScript: '/gif.worker.js',
-    dither: false,  // Disable dithering for cleaner output
+    dither: false,  // Disable dithering for cleaner output and smaller size
     repeat: 0,  // 0 = infinite loop, -1 = no repeat, N = repeat N times
   });
   
@@ -260,6 +261,11 @@ export async function convertAnimatedGif(
           console.log(`✓ NETSCAPE found at ${netIdx}, loop count: ${data[netIdx+16] | (data[netIdx+17] << 8)} (0=infinite)`);
         } else {
           console.error('✗ NETSCAPE injection failed!');
+        }
+        
+        // Warn if file is too large for DOTT
+        if (data.length > MAX_FILE_SIZE) {
+          console.warn(`⚠️ GIF is ${Math.round(data.length/1024)}KB - DOTT may not loop files over ~100KB!`);
         }
         
         resolve({
