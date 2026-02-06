@@ -382,10 +382,9 @@ export class SMPClient {
         return { success: false, hash: null };
       }
       
-      // Check if device reports different offset (it may have already received this chunk)
+      // Check if device reports different offset (resume support)
       const nextOff = parsed.payload['off'] as number | undefined;
       if (nextOff !== undefined && nextOff > offset) {
-        this.log(`Device requested skip to offset ${nextOff}`);
         offset = nextOff;
       } else {
         offset += chunk.length;
@@ -394,7 +393,8 @@ export class SMPClient {
       const percent = Math.floor((offset / firmware.length) * 100);
       onProgress?.(percent);
       
-      if (percent !== lastPercent && percent % 10 === 0) {
+      // Log progress at each percent change
+      if (percent !== lastPercent) {
         this.log(`Upload progress: ${percent}%`);
         lastPercent = percent;
       }
