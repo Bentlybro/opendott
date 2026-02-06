@@ -123,10 +123,13 @@ function App() {
       <footer className="border-t border-zinc-800 py-6">
         <div className="max-w-4xl mx-auto px-4 text-center text-zinc-500 text-sm">
           <p>
-            OpenDOTT v0.5 — Open-source software.{' '}
+            OpenDOTT — Open-source software.{' '}
             <a href="https://github.com/Bentlybro/opendott" className="text-blue-400 hover:underline">
               View on GitHub
             </a>
+          </p>
+          <p className="text-xs text-zinc-600 mt-1">
+            Build: {__BUILD_TIME__}
           </p>
         </div>
       </footer>

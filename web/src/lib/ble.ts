@@ -20,8 +20,9 @@ const UUID_1530 = '00001530-0000-1000-8000-00805f9b34fb';  // Response
 
 // Transfer settings
 const DEFAULT_MTU = 517;     // Web Bluetooth typically negotiates this
-const MAX_CHUNK_SIZE = 512;  // Web Bluetooth hard limit per write
-const CHUNK_DELAY_MS = 5;
+const MAX_CHUNK_SIZE = 244;  // Safer chunk size (like Python with MTU 247)
+const CHUNK_DELAY_MS = 10;   // Slightly slower for reliability
+const MAX_RETRIES = 3;
 
 /**
  * Validate GIF has full frames (required for DOTT - no delta optimization!)
@@ -313,14 +314,30 @@ class DottBleService {
 
       // Step 2: DATA - Send raw bytes to 0x1525 without response
       this.log('');
-      this.log('Step 2: Sending GIF data...');
+      this.log(`Step 2: Sending GIF data (${chunkSize}b chunks)...`);
       const startTime = Date.now();
       
       let lastLogPct = 0;
       for (let i = 0; i < totalBytes; i += chunkSize) {
         const chunk = data.slice(i, i + chunkSize);
-        await this.dataChar.writeValueWithoutResponse(chunk);
-        await new Promise(r => setTimeout(r, CHUNK_DELAY_MS));  // 5ms delay same as Python
+        
+        // Retry logic for GATT errors
+        let success = false;
+        for (let retry = 0; retry < MAX_RETRIES && !success; retry++) {
+          try {
+            await this.dataChar.writeValueWithoutResponse(chunk);
+            success = true;
+          } catch (e) {
+            if (retry < MAX_RETRIES - 1) {
+              this.log(`  Retry ${retry + 1}/${MAX_RETRIES} at offset ${i}...`);
+              await new Promise(r => setTimeout(r, 50 * (retry + 1)));  // Backoff
+            } else {
+              throw e;  // Give up after max retries
+            }
+          }
+        }
+        
+        await new Promise(r => setTimeout(r, CHUNK_DELAY_MS));
         
         const pct = Math.floor(((i + chunk.length) / totalBytes) * 100);
         this.callbacks.onProgress?.(pct, i + chunk.length, totalBytes);
