@@ -31,9 +31,10 @@ except ImportError:
 
 # BLE UUIDs
 UUID_DOTT_SERVICE = "0483dadd-6c9d-6ca9-5d41-03ad4fff4bcc"
-UUID_TRIGGER = "00001528-0000-1000-8000-00805f9b34fb"  # Trigger characteristic
+UUID_TRIGGER = "00001528-0000-1000-8000-00805f9b34fb"  # Trigger characteristic (indicate)
 UUID_DATA = "00001525-0000-1000-8000-00805f9b34fb"     # Data characteristic
-UUID_RESPONSE = "00001529-0000-1000-8000-00805f9b34fb" # Response notifications
+UUID_1529 = "00001529-0000-1000-8000-00805f9b34fb"     # Notify
+UUID_1530 = "00001530-0000-1000-8000-00805f9b34fb"     # Notify
 
 # Protocol constants
 TRIGGER_CMD = bytes([0x00, 0x40, 0x10, 0x00])  # Magic trigger command
@@ -82,8 +83,8 @@ class DOTTClient:
         self.mtu_size = self.client.mtu_size or 23
         print(f"Connected (MTU: {self.mtu_size})")
         
-        # Enable notifications
-        for uuid in [UUID_TRIGGER, UUID_RESPONSE]:
+        # Enable notifications on all relevant characteristics
+        for uuid in [UUID_TRIGGER, UUID_1529, UUID_1530]:
             try:
                 await self.client.start_notify(uuid, self._notification_handler)
             except:
