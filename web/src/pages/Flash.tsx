@@ -123,15 +123,41 @@ export function FlashPage() {
           </div>
         </div>
 
+        {/* Instructions */}
+        <div className="mb-6 p-4 rounded-xl bg-blue-500/20 border border-blue-500/50 text-blue-400">
+          <div className="font-medium mb-2">📋 How to Flash</div>
+          <ol className="text-sm space-y-1 list-decimal list-inside">
+            <li>Put your DOTT in <strong>bootloader mode</strong> (tap the two pins on PCB)</li>
+            <li>Device will advertise as "Dott_V2_Atin"</li>
+            <li>Download the firmware below (or select your own)</li>
+            <li>Click "Flash Firmware"</li>
+          </ol>
+        </div>
+
+        {/* Download firmware */}
+        <div className="mb-6 p-4 rounded-xl bg-zinc-900 border border-zinc-800">
+          <div className="font-medium mb-2">📦 OpenDOTT Firmware</div>
+          <div className="flex items-center gap-4">
+            <a 
+              href="/opendott-firmware.bin" 
+              download="opendott-firmware.bin"
+              className="px-4 py-2 rounded-lg bg-green-500 text-white font-medium hover:bg-green-600 transition-colors"
+            >
+              Download opendott-firmware.bin
+            </a>
+            <span className="text-sm text-zinc-400">~193 KB</span>
+          </div>
+        </div>
+
         {/* Warning */}
         <div className="mb-6 p-4 rounded-xl bg-yellow-500/20 border border-yellow-500/50 text-yellow-400">
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
             <div>
-              <div className="font-medium">⚠️ Developer Tool</div>
+              <div className="font-medium">⚠️ Warning</div>
               <div className="text-sm mt-1">
-                Only use this if you know what you're doing. Uploading incorrect firmware can brick your device.
-                Make sure your DOTT is in bootloader/DFU mode first.
+                Flashing incorrect firmware can brick your device. If signature verification fails,
+                you may need to use SWD (J6 pads) to recover.
               </div>
             </div>
           </div>
