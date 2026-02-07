@@ -29,8 +29,9 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
   const [isOptimizing, setIsOptimizing] = useState(false);
 
   // Limits
-  const UPLOAD_LIMIT_KB = 100;  // Warn if over this after optimization
-  const WARN_LIMIT_KB = 50;     // Show optimize button if over this
+  const BLOCK_LIMIT_KB = 500;     // Block upload if over this (brick risk)
+  const FORCE_OPTIMIZE_MB = 5;    // Must optimize if over this
+  const WARN_LIMIT_KB = 50;       // Show optimize button if over this
 
   const handleFile = useCallback(async (file: File) => {
     setError(null);
@@ -338,87 +339,157 @@ export function ImageUploader({ isConnected, isUploading, progress, onUpload }: 
               </div>
               
               {/* Upload button */}
-              <button
-                onClick={handleUpload}
-                disabled={!isConnected || isUploading}
-                className={cn(
-                  "mt-4 px-6 py-2 rounded-lg font-medium transition-colors flex items-center gap-2",
-                  uploadSuccess 
-                    ? "bg-green-500 text-white"
-                    : "bg-blue-500 text-white hover:bg-blue-600",
-                  (!isConnected || isUploading) && "opacity-50 cursor-not-allowed"
-                )}
-              >
-                {isUploading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Uploading... {Math.round(progress)}%
-                  </>
-                ) : uploadSuccess ? (
-                  <>
-                    <Check className="w-4 h-4" />
-                    Uploaded!
-                  </>
-                ) : (
-                  <>
-                    <Upload className="w-4 h-4" />
-                    Upload to Device
-                  </>
-                )}
-              </button>
+              {(() => {
+                // Determine upload state
+                const originalSizeMB = processedImage.originalInfo.file.size / (1024 * 1024);
+                const mustOptimizeFirst = originalSizeMB > FORCE_OPTIMIZE_MB && !processedImage.wasConverted;
+                const uploadBlocked = processedImage.convertedSize > BLOCK_LIMIT_KB * 1024;
+                const canUpload = isConnected && !isUploading && !mustOptimizeFirst && !uploadBlocked;
+                
+                return (
+                  <button
+                    onClick={handleUpload}
+                    disabled={!canUpload}
+                    className={cn(
+                      "mt-4 px-6 py-2 rounded-lg font-medium transition-colors flex items-center gap-2",
+                      uploadSuccess 
+                        ? "bg-green-500 text-white"
+                        : uploadBlocked
+                          ? "bg-red-500/50 text-red-200"
+                          : "bg-blue-500 text-white hover:bg-blue-600",
+                      !canUpload && "opacity-50 cursor-not-allowed"
+                    )}
+                  >
+                    {isUploading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Uploading... {Math.round(progress)}%
+                      </>
+                    ) : uploadSuccess ? (
+                      <>
+                        <Check className="w-4 h-4" />
+                        Uploaded!
+                      </>
+                    ) : uploadBlocked ? (
+                      <>
+                        <X className="w-4 h-4" />
+                        Too Large - Blocked
+                      </>
+                    ) : mustOptimizeFirst ? (
+                      <>
+                        <Sparkles className="w-4 h-4" />
+                        Optimize First
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4" />
+                        Upload to Device
+                      </>
+                    )}
+                  </button>
+                );
+              })()}
             </div>
           </div>
           
-          {/* Status message */}
-          {processedImage.wasConverted ? (
-            <div className="mt-4 p-3 rounded-lg bg-purple-500/20 border border-purple-500/50 text-purple-400 text-sm">
-              <strong>Optimized!</strong> {formatFileSize(processedImage.convertedSize)}, {processedImage.frameCount} frame{(processedImage.frameCount ?? 0) !== 1 ? 's' : ''}.
-            </div>
-          ) : (
-            <div className="mt-4 p-3 rounded-lg bg-green-500/20 border border-green-500/50 text-green-400 text-sm">
-              <strong>Ready!</strong> GIF will be sent as-is ({formatFileSize(processedImage.convertedSize)}, {processedImage.frameCount} frame{(processedImage.frameCount ?? 0) !== 1 ? 's' : ''}).
-            </div>
-          )}
-          
-          {/* Size warning with optimization */}
-          {processedImage.convertedSize > WARN_LIMIT_KB * 1024 && (
-            <div className={cn(
-              "mt-4 p-3 rounded-lg text-sm",
-              processedImage.convertedSize > UPLOAD_LIMIT_KB * 1024
-                ? "bg-orange-500/20 border border-orange-500/50 text-orange-400"
-                : "bg-yellow-500/20 border border-yellow-500/50 text-yellow-400"
-            )}>
-              <strong>{processedImage.convertedSize > UPLOAD_LIMIT_KB * 1024 ? 'Large file:' : 'Tip:'}</strong>{' '}
-              File is {Math.round(processedImage.convertedSize / 1024)}KB. 
-              {processedImage.convertedSize > UPLOAD_LIMIT_KB * 1024 
-                ? ' This may not work on DOTT. Try optimizing first!'
-                : ' Smaller files work more reliably.'}
-              
-              <div className="mt-3">
-                <button
-                  onClick={handleOptimize}
-                  disabled={isOptimizing}
-                  className={cn(
-                    "px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2",
-                    "bg-purple-500 text-white hover:bg-purple-600 transition-colors",
-                    isOptimizing && "opacity-50 cursor-not-allowed"
-                  )}
-                >
-                  {isOptimizing ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Optimizing...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4" />
-                      Optimize Now
-                    </>
-                  )}
-                </button>
+          {/* Size-based warnings and actions */}
+          {(() => {
+            const originalSizeMB = processedImage.originalInfo.file.size / (1024 * 1024);
+            const mustOptimizeFirst = originalSizeMB > FORCE_OPTIMIZE_MB && !processedImage.wasConverted;
+            const uploadBlocked = processedImage.convertedSize > BLOCK_LIMIT_KB * 1024;
+            const showOptimizeHint = processedImage.convertedSize > WARN_LIMIT_KB * 1024;
+            
+            // Case 1: Must optimize first (>5MB original, not yet optimized)
+            if (mustOptimizeFirst) {
+              return (
+                <div className="mt-4 p-3 rounded-lg bg-orange-500/20 border border-orange-500/50 text-orange-400 text-sm">
+                  <strong>File too large!</strong> {Math.round(originalSizeMB * 10) / 10}MB files must be optimized before uploading.
+                  <div className="mt-3">
+                    <button
+                      onClick={handleOptimize}
+                      disabled={isOptimizing}
+                      className={cn(
+                        "px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2",
+                        "bg-purple-500 text-white hover:bg-purple-600 transition-colors",
+                        isOptimizing && "opacity-50 cursor-not-allowed"
+                      )}
+                    >
+                      {isOptimizing ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Optimizing...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          Optimize Now
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+            
+            // Case 2: Still too large after optimization (>500KB) - blocked
+            if (uploadBlocked) {
+              return (
+                <div className="mt-4 p-3 rounded-lg bg-red-500/20 border border-red-500/50 text-red-400 text-sm">
+                  <strong>Upload blocked!</strong> File is still {Math.round(processedImage.convertedSize / 1024)}KB after optimization.
+                  Files over {BLOCK_LIMIT_KB}KB have a very high chance of bricking the device.
+                  Try a simpler or shorter GIF.
+                </div>
+              );
+            }
+            
+            // Case 3: Optimized and good to go
+            if (processedImage.wasConverted) {
+              return (
+                <div className="mt-4 p-3 rounded-lg bg-purple-500/20 border border-purple-500/50 text-purple-400 text-sm">
+                  <strong>Optimized!</strong> {formatFileSize(processedImage.convertedSize)}, {processedImage.frameCount} frame{(processedImage.frameCount ?? 0) !== 1 ? 's' : ''}.
+                </div>
+              );
+            }
+            
+            // Case 4: Could benefit from optimization (>50KB)
+            if (showOptimizeHint) {
+              return (
+                <div className="mt-4 p-3 rounded-lg bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 text-sm">
+                  <strong>Tip:</strong> File is {Math.round(processedImage.convertedSize / 1024)}KB. Smaller files work more reliably.
+                  <div className="mt-3">
+                    <button
+                      onClick={handleOptimize}
+                      disabled={isOptimizing}
+                      className={cn(
+                        "px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2",
+                        "bg-purple-500 text-white hover:bg-purple-600 transition-colors",
+                        isOptimizing && "opacity-50 cursor-not-allowed"
+                      )}
+                    >
+                      {isOptimizing ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Optimizing...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          Optimize Now
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+            
+            // Case 5: Small file, ready to go
+            return (
+              <div className="mt-4 p-3 rounded-lg bg-green-500/20 border border-green-500/50 text-green-400 text-sm">
+                <strong>Ready!</strong> GIF will be sent as-is ({formatFileSize(processedImage.convertedSize)}, {processedImage.frameCount} frame{(processedImage.frameCount ?? 0) !== 1 ? 's' : ''}).
               </div>
-            </div>
-          )}
+            );
+          })()}
           
           {/* Progress bar */}
           {isUploading && (
