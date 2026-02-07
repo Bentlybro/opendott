@@ -1,74 +1,68 @@
-# React + TypeScript + Vite
+# OpenDOTT Web App
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A web-based companion app for the DOTT wearable display. Upload GIFs to your device directly from your browser using Web Bluetooth.
 
-Currently, two official plugins are available:
+**Live Site:** [opendott.dev](https://opendott.dev)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Features
 
-## React Compiler
+- **Web Bluetooth Connection** - Connect to your DOTT device directly from Chrome/Edge
+- **GIF Upload** - Upload animated GIFs to display on your device
+- **Smart Optimization** - Built-in GIF compression to ensure reliable uploads
+- **Size Validation** - Prevents uploads that could brick your device
+- **PNG/JPEG Support** - Automatically converts static images to GIF format
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Usage
 
-## Expanding the ESLint configuration
+1. Open [opendott.dev](https://opendott.dev) in Chrome or Edge (Web Bluetooth required)
+2. Click "Connect" and select your DOTT device
+3. Drop a GIF onto the upload area
+4. Click "Upload to Device"
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## File Size Limits
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+The DOTT has limited memory, so file sizes matter:
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+| Size | Behavior |
+|------|----------|
+| **>5MB** | Must optimize before uploading |
+| **>500KB** | Upload blocked (brick risk) |
+| **50-500KB** | Warning shown, optimization suggested |
+| **<50KB** | Good to go |
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+The built-in optimizer uses gifsicle to compress GIFs in your browser.
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Start dev server
+npm run dev
+
+# Build for production
+npm run build
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Tech Stack
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+- React + TypeScript
+- Vite
+- Tailwind CSS
+- Web Bluetooth API
+- gifsicle-wasm-browser (GIF optimization)
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## Browser Support
 
+Web Bluetooth is required, which limits support to:
+- Chrome (desktop & Android)
+- Edge (desktop)
+- Opera
+
+Safari and Firefox do not support Web Bluetooth.
+
+## Related
+
+- [OpenDOTT Firmware](../firmware/) - Open-source firmware for the DOTT
+- [Python Tools](../tools/) - CLI tools for uploading and recovery
