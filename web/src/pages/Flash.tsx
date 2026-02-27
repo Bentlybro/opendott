@@ -139,10 +139,25 @@ export function FlashPage() {
       // Reset device
       addLog('Restarting device...');
       await smp.reset();
+      
+      // CRITICAL: Disconnect and clear device reference to avoid GATT cache issues
+      // The browser caches GATT service discovery, so we need to force a clean reconnect
+      try {
+        server?.disconnect();
+      } catch {
+        // Ignore disconnect errors - device is resetting anyway
+      }
+      
+      // Mark that we just flashed firmware (helps main page know to prompt power cycle)
+      localStorage.setItem('opendott_just_flashed', Date.now().toString());
 
       setState('success');
       setStatusMessage('');
-      addLog('Firmware update complete! Your DOTT will restart with the new firmware.');
+      addLog('');
+      addLog('✓ Firmware uploaded successfully!');
+      addLog('');
+      addLog('⚠️ IMPORTANT: Turn your DOTT OFF and ON again before uploading images.');
+      addLog('   (Hold button to turn off, then press again to turn on)');
       
     } catch (err) {
       setState('error');
@@ -196,10 +211,25 @@ export function FlashPage() {
             <p className="text-green-300 mb-4">
               The new firmware has been uploaded to your DOTT.
             </p>
-            <div className="text-zinc-400 text-sm mb-6 space-y-2">
-              <p>Your device should restart automatically with the new firmware.</p>
-              <p>If it doesn't restart within 30 seconds, <strong>turn it off and on manually</strong>.</p>
+            
+            {/* Critical power cycle warning */}
+            <div className="my-6 p-4 rounded-xl bg-yellow-500/20 border border-yellow-500/50 text-left">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-6 h-6 text-yellow-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-bold text-yellow-400 mb-2">Before uploading images:</div>
+                  <ol className="text-yellow-200/90 space-y-2 list-decimal list-inside">
+                    <li><strong>Turn your DOTT OFF</strong> (hold button until screen goes dark)</li>
+                    <li><strong>Wait 5 seconds</strong></li>
+                    <li><strong>Turn it back ON</strong> (press button)</li>
+                  </ol>
+                  <p className="text-yellow-200/70 text-sm mt-3">
+                    This clears the Bluetooth cache and ensures the new firmware is recognized.
+                  </p>
+                </div>
+              </div>
             </div>
+            
             <div className="flex gap-4 justify-center">
               <a
                 href="/"

@@ -13,6 +13,11 @@ export interface ImageInfo {
   frameCount?: number;
 }
 
+// Safety limits for DOTT device
+const MAX_GIF_SIZE = 512 * 1024;  // 512KB max - device has limited RAM
+const MAX_FRAMES = 50;  // Too many frames can cause issues
+const MAX_DIMENSION = 500;  // Sanity check for dimensions
+
 // Magic bytes for image detection
 const GIF_MAGIC = [0x47, 0x49, 0x46];  // "GIF"
 const PNG_MAGIC = [0x89, 0x50, 0x4E, 0x47];  // PNG signature
@@ -47,6 +52,148 @@ function isAnimatedGif(data: Uint8Array): boolean {
   }
   
   return false;
+}
+
+/**
+ * Thoroughly validate GIF structure to prevent device bricking.
+ * Returns { valid: true } or { valid: false, error: "reason" }
+ */
+function validateGifStructure(data: Uint8Array): { valid: boolean; error?: string } {
+  // Check minimum size
+  if (data.length < 13) {
+    return { valid: false, error: 'File is too small to be a valid GIF' };
+  }
+  
+  // Check GIF header
+  const header = String.fromCharCode(data[0], data[1], data[2]);
+  if (header !== 'GIF') {
+    return { valid: false, error: 'Not a valid GIF file (invalid header)' };
+  }
+  
+  // Check version
+  const version = String.fromCharCode(data[3], data[4], data[5]);
+  if (version !== '87a' && version !== '89a') {
+    return { valid: false, error: `Unsupported GIF version: ${version}` };
+  }
+  
+  // Check dimensions
+  const width = data[6] | (data[7] << 8);
+  const height = data[8] | (data[9] << 8);
+  
+  if (width === 0 || height === 0) {
+    return { valid: false, error: 'GIF has invalid dimensions (0x0)' };
+  }
+  
+  if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+    return { valid: false, error: `GIF is too large (${width}×${height}). Maximum is ${MAX_DIMENSION}×${MAX_DIMENSION}` };
+  }
+  
+  // Check file size
+  if (data.length > MAX_GIF_SIZE) {
+    return { valid: false, error: `GIF is too large (${Math.round(data.length / 1024)}KB). Maximum is ${MAX_GIF_SIZE / 1024}KB` };
+  }
+  
+  // Parse through the GIF to check structure
+  let pos = 13;
+  
+  // Skip global color table if present
+  if (data[10] & 0x80) {
+    const gctSize = 3 * (2 ** ((data[10] & 0x07) + 1));
+    pos += gctSize;
+    if (pos > data.length) {
+      return { valid: false, error: 'GIF has truncated global color table' };
+    }
+  }
+  
+  let frameCount = 0;
+  let foundTrailer = false;
+  
+  // Parse blocks
+  while (pos < data.length) {
+    const blockType = data[pos];
+    
+    if (blockType === 0x21) {
+      // Extension block
+      if (pos + 1 >= data.length) {
+        return { valid: false, error: 'GIF has truncated extension block' };
+      }
+      
+      const extType = data[pos + 1];
+      
+      if (extType === 0xF9) {
+        // Graphic Control Extension (fixed size)
+        pos += 8;
+      } else {
+        // Other extensions (variable size) - skip sub-blocks
+        pos += 2;
+        while (pos < data.length && data[pos] !== 0) {
+          const subBlockSize = data[pos];
+          pos += subBlockSize + 1;
+          if (pos > data.length) {
+            return { valid: false, error: 'GIF has truncated extension sub-block' };
+          }
+        }
+        pos += 1; // Block terminator
+      }
+    } else if (blockType === 0x2C) {
+      // Image descriptor
+      if (pos + 10 > data.length) {
+        return { valid: false, error: 'GIF has truncated image descriptor' };
+      }
+      
+      frameCount++;
+      if (frameCount > MAX_FRAMES) {
+        return { valid: false, error: `GIF has too many frames (${frameCount}). Maximum is ${MAX_FRAMES}` };
+      }
+      
+      pos += 10;
+      
+      // Skip local color table if present
+      if (data[pos - 1] & 0x80) {
+        const lctSize = 3 * (2 ** ((data[pos - 1] & 0x07) + 1));
+        pos += lctSize;
+        if (pos > data.length) {
+          return { valid: false, error: 'GIF has truncated local color table' };
+        }
+      }
+      
+      // LZW minimum code size
+      if (pos >= data.length) {
+        return { valid: false, error: 'GIF has truncated image data' };
+      }
+      pos += 1;
+      
+      // Skip image data sub-blocks
+      while (pos < data.length && data[pos] !== 0) {
+        const subBlockSize = data[pos];
+        pos += subBlockSize + 1;
+        if (pos > data.length) {
+          return { valid: false, error: 'GIF has truncated image data block' };
+        }
+      }
+      pos += 1; // Block terminator
+    } else if (blockType === 0x3B) {
+      // Trailer - end of GIF
+      foundTrailer = true;
+      break;
+    } else if (blockType === 0x00) {
+      // Padding byte - skip
+      pos += 1;
+    } else {
+      // Unknown block type - could be corrupt
+      return { valid: false, error: `GIF has unknown block type: 0x${blockType.toString(16)}` };
+    }
+  }
+  
+  if (frameCount === 0) {
+    return { valid: false, error: 'GIF has no image frames' };
+  }
+  
+  if (!foundTrailer) {
+    return { valid: false, error: 'GIF is missing trailer (file may be truncated)' };
+  }
+  
+  return { valid: true };
 }
 
 /**
@@ -180,11 +327,53 @@ export async function processImageForDevice(
   const data = new Uint8Array(buffer);
   const type = detectImageType(data);
   
-  // GIFs: ALWAYS send raw - no conversion!
-  // The Python script does this and it works perfectly.
-  // Conversion was breaking looping and tripling file sizes.
+  // GIFs: Validate structure first to prevent bricking
   if (type === 'gif') {
-    console.log(`GIF detected (${data.length} bytes) - sending raw, no conversion`);
+    console.log(`GIF detected (${data.length} bytes) - validating...`);
+    
+    // Structural validation (prevents corrupt/truncated GIFs from bricking device)
+    const structureCheck = validateGifStructure(data);
+    if (!structureCheck.valid) {
+      throw new Error(`Invalid GIF: ${structureCheck.error}`);
+    }
+    
+    // Check dimensions - DOTT is 240x240, warn if very different
+    const width = data[6] | (data[7] << 8);
+    const height = data[8] | (data[9] << 8);
+    
+    // If dimensions are way off and auto-convert is enabled, convert it
+    if (autoConvert && (width > 300 || height > 300 || width < 50 || height < 50)) {
+      console.log(`GIF dimensions (${width}×${height}) need resizing - converting...`);
+      onProgress?.('Resizing GIF', 30);
+      const { convertAnimatedGif, needsConversion } = await import('./gifConverter');
+      const conversionNeeded = needsConversion(data);
+      if (conversionNeeded.needs) {
+        try {
+          const result = await convertAnimatedGif(file, (p) => {
+            onProgress?.(p.stage, p.progress);
+          });
+          // Validate the converted output too
+          const convertedCheck = validateGifStructure(result.data);
+          if (!convertedCheck.valid) {
+            throw new Error(`Conversion produced invalid GIF: ${convertedCheck.error}`);
+          }
+          console.log(`Converted GIF: ${result.frameCount} frames, ${result.data.length} bytes`);
+          return result.data;
+        } catch (e) {
+          // If conversion fails, log warning but try sending original
+          console.warn('GIF conversion failed, trying original:', e);
+        }
+      }
+    }
+    
+    // Frame validation (warns about partial frames that won't animate)
+    const frameCheck = validateGifFrames(data);
+    if (!frameCheck.valid && frameCheck.warning) {
+      console.warn(frameCheck.warning);
+      // Don't block - just warn. Partial frames display but don't animate.
+    }
+    
+    console.log(`GIF validated OK - sending raw (${data.length} bytes)`);
     return data;
   }
   
@@ -192,7 +381,15 @@ export async function processImageForDevice(
   if ((type === 'png' || type === 'jpeg') && autoConvert) {
     const { convertStaticToGif } = await import('./gifConverter');
     onProgress?.('Converting to GIF', 50);
-    return await convertStaticToGif(file);
+    const converted = await convertStaticToGif(file);
+    
+    // Validate the converted output
+    const convertedCheck = validateGifStructure(converted);
+    if (!convertedCheck.valid) {
+      throw new Error(`Conversion produced invalid GIF: ${convertedCheck.error}`);
+    }
+    
+    return converted;
   }
   
   // Return raw data for anything else

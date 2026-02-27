@@ -300,6 +300,28 @@ class DottBleService {
       } catch (e) {
         const errMsg = (e as Error).message.toLowerCase();
         if (errMsg.includes('no services matching uuid') || errMsg.includes('not found')) {
+          // Check if we just flashed firmware (within last 10 minutes)
+          const justFlashed = localStorage.getItem('opendott_just_flashed');
+          if (justFlashed) {
+            const flashedTime = parseInt(justFlashed, 10);
+            const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
+            if (flashedTime > tenMinutesAgo) {
+              // User just flashed but didn't power cycle
+              this.log('DOTT service not found - please power cycle your device');
+              this.log('Turn OFF (hold button), wait 5 seconds, turn ON');
+              this.callbacks.onError?.(new Error(
+                'Please turn your DOTT OFF and ON again. ' +
+                'The firmware was updated but your phone/computer has cached the old connection. ' +
+                'Power cycling the DOTT will fix this.'
+              ));
+              this.setState('disconnected');
+              return false;
+            } else {
+              // Clear stale flag
+              localStorage.removeItem('opendott_just_flashed');
+            }
+          }
+          
           this.log('DOTT service not found - device needs firmware update');
           this.setState('needs_update');
           return false;
@@ -328,6 +350,11 @@ class DottBleService {
 
       this.reconnectAttempts = 0;
       this.setState('connected');
+      
+      // Clear the "just flashed" flag since we successfully connected
+      // This means the power cycle worked
+      localStorage.removeItem('opendott_just_flashed');
+      
       return true;
     } catch (error) {
       throw error;
