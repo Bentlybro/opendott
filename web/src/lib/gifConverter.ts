@@ -13,9 +13,9 @@ import { parseGIF, decompressFrames } from 'gifuct-js';
 import GIF from 'gif.js-upgrade';
 
 const TARGET_SIZE = 240;
-const MAX_FRAMES = 12;  // Balance between quality and size
+const MAX_FRAMES = 28;  // Balance between quality and size
 const MAX_FILE_SIZE = 100 * 1024;  // 100KB warning threshold
-const POSTERIZE_LEVELS = 64;  // Mild posterization - preserve quality while investigating
+const POSTERIZE_LEVELS = 128;  // Mild posterization - preserves quality while reducing colors
 
 /**
  * Posterize canvas to reduce colors (helps with GIF compression)
